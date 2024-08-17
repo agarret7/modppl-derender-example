@@ -1,0 +1,8 @@
+[package]
+name = "modppl-derender"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+modppl = "0.3.0"
+float_extras = "0.1.6"
