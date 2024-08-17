@@ -30,7 +30,6 @@ pub struct Plane {
 
 impl Solid for Plane {
     fn ray_intersect(&self, ray_origin: Vec3, ray_dir: Vec3) -> Option<f32> {
-        // TODO: generalize
         let origin = self.origin;
         let normalv = self.normal;
         let denom = vec3_dot(&normalv, &ray_dir);

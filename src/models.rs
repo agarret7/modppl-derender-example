@@ -1,4 +1,5 @@
 use std::f32::consts::PI;
+use float_extras::f64::erf;
 use modppl::prelude::*;
 
 use crate::types::*;
@@ -7,10 +8,6 @@ use crate::ray::*;
 
 
 /* pixel likelihoods */
-
-use modppl::{Distribution,normal};
-use float_extras::f64::erf;
-
 
 /// truncated Gaussian distribution type
 pub struct TruncatedNormal { }
