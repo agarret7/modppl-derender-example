@@ -40,6 +40,7 @@ pub const fn pose_id() -> Pose {
    SOFTWARE.
 */
 
+#[inline]
 pub fn unproject_inv(pos: Vec3, inv_m: Mat4, vp: Vec4) -> Vec3 {
     let mut v = vec4_zero();
 
@@ -54,10 +55,12 @@ pub fn unproject_inv(pos: Vec3, inv_m: Mat4, vp: Vec4) -> Vec3 {
     dest
 }
 
+#[inline]
 pub fn ray_at(ray_origin: Vec3, ray_dir: Vec3, distance: f32) -> Vec3 {
     vec3_add(ray_origin, vec3_scale(&ray_dir, distance))
 }
 
+#[inline]
 pub fn perspective(fovy: f32, aspect_ratio: f32, nearz: f32, farz: f32) -> Mat4 {
     let mut out = mat4_zero();
 
@@ -73,6 +76,7 @@ pub fn perspective(fovy: f32, aspect_ratio: f32, nearz: f32, farz: f32) -> Mat4 
     out
 }
 
+#[inline]
 pub fn euler_xyz(angles: Vec3) -> Quat {
     let sx   = angles[0].sin(); let cx = angles[0].cos();
     let sy   = angles[1].sin(); let cy = angles[1].cos();
@@ -142,19 +146,23 @@ pub fn euler_xyz(angles: Vec3) -> Quat {
     out
 }
 
+#[inline]
 pub fn vec3_euler_to_pose(xyz: Vec3, ypr: Vec3) -> Pose {
     let q = euler_xyz(ypr);
     [xyz[0], xyz[1], xyz[2], q[0], q[1], q[2], q[3]]
 }
 
+#[inline]
 pub fn pose_to_vec3(p: Pose) -> Vec3 {
     [p[0], p[1], p[2]]
 }
 
+#[inline]
 pub fn pose_to_quat(p: Pose) -> Quat {
     [p[3], p[4], p[5], p[6]]
 }
 
+#[inline]
 pub fn quat_to_mat4(q: Quat, dest: &mut Mat4) {
     let norm = quat_norm(&q);
     let s    = if norm > 0.0 { 2.0 / norm } else { 0.0 };
@@ -189,6 +197,7 @@ pub fn quat_to_mat4(q: Quat, dest: &mut Mat4) {
     dest[3][3] = 1.0;
 }
 
+#[inline]
 pub fn pose_to_mat4(p: Pose) -> Mat4 {
     let mut out = mat4_zero();
     let q = pose_to_quat(p);
@@ -199,53 +208,65 @@ pub fn pose_to_mat4(p: Pose) -> Mat4 {
     out
 }
 
+#[inline]
 pub fn vec3_add(a: Vec3, b: Vec3) -> Vec3 {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
+#[inline]
 pub fn vec3_sub(a: Vec3, b: Vec3) -> Vec3 {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
+#[inline]
 pub fn vec3_dot(a: &Vec3, b: &Vec3) -> f32 {
     a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
 }
 
+#[inline]
 pub fn vec3_scale(v: &Vec3, a: f32) -> Vec3 {
     [a*v[0], a*v[1], a*v[2]]
 }
 
+#[inline]
 pub fn vec3_norm_squared(v: &Vec3) -> f32 {
     vec3_dot(&v, &v)
 }
 
+#[inline]
 pub fn vec3_norm(v: &Vec3) -> f32 {
     vec3_norm_squared(v).sqrt()
 }
 
+#[inline]
 pub fn vec3_normalize(v: &mut Vec3) {
     let norm = vec3_norm(v);
     v[0] /= norm; v[1] /= norm; v[2] /= norm;
 }
 
+#[inline]
 pub fn vec3_mulsubs(v: Vec3, a: f32, dest: &mut Vec3) {
     dest[0] -= v[0] * a;
     dest[1] -= v[1] * a;
     dest[2] -= v[2] * a;
 }
 
+#[inline]
 pub fn vec4_scale(v: &Vec4, a: f32) -> Vec4 {
     [a*v[0], a*v[1], a*v[2], a*v[3]]
 }
 
+#[inline]
 pub fn vec4_norm(v: &Vec4) -> f32 {
     (v[0]*v[0] + v[1]*v[1] + v[2]*v[2] + v[3]*v[3]).sqrt()
 }
 
+#[inline]
 pub fn quat_norm(q: &Quat) -> f32 {
     vec4_norm(q)
 }
 
+#[inline]
 pub fn mat4_scale_p(mat: &mut Mat4, v: f32) {
     mat[0][0] *= v; mat[0][1] *= v; mat[0][2] *= v; mat[0][3] *= v;
     mat[1][0] *= v; mat[1][1] *= v; mat[1][2] *= v; mat[1][3] *= v;
@@ -253,6 +274,7 @@ pub fn mat4_scale_p(mat: &mut Mat4, v: f32) {
     mat[3][0] *= v; mat[3][1] *= v; mat[3][2] *= v; mat[3][3] *= v;
 }
 
+#[inline]
 pub fn mat4_mulv(m: Mat4, v: Vec4) -> Vec4 {
     let mut out = vec4_zero();
     out[0] = m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]*v[3];
@@ -262,6 +284,7 @@ pub fn mat4_mulv(m: Mat4, v: Vec4) -> Vec4 {
     out
 }
 
+#[inline]
 pub fn mat4_inv(mat: Mat4) -> Mat4 {
     let mut t = [0.0; 6];
     let det: f32;
@@ -309,6 +332,7 @@ pub fn mat4_inv(mat: Mat4) -> Mat4 {
     out
 }
 
+#[inline]
 pub fn mat4_mul(a: Mat4, b: Mat4) -> Mat4 {
     let a00 = a[0][0]; let a01 = a[0][1]; let a02 = a[0][2]; let a03 = a[0][3];
     let a10 = a[1][0]; let a11 = a[1][1]; let a12 = a[1][2]; let a13 = a[1][3];
