@@ -3,14 +3,7 @@ use modppl::prelude::*;
 
 use crate::types::*;
 use crate::linear::*;
-use crate::{NEAR,FAR};
-
-
-/* constants */
-
-pub const H   : usize = 128;
-pub const W   : usize = 128;
-pub const AREA: usize = H*W;
+use crate::config::*;
 
 
 /* cpu ray tracers */
@@ -70,7 +63,6 @@ pub fn raytrace_colors(x: Pose, proj: Mat4, scene: &Scene, background_color: Col
     let i = mat4_mul(iso, i_proj);
 
     let num_samples = 10;
-    let vp = [ 0.0, 0.0, W as f32, H as f32 ];
     let cnorm = 1.0 / num_samples as f32;
     let max_depth = 10;
 
@@ -82,8 +74,8 @@ pub fn raytrace_colors(x: Pose, proj: Mat4, scene: &Scene, background_color: Col
                 // the one place we add sampling INTERNAL to the ray-tracer: dithering
                 let u = x as f32 + u01(&mut rng) as f32 + 0.5;
                 let v = (H - y) as f32 + u01(&mut rng) as f32 - 0.5;
-                let near_pw = unproject_inv([u, v, -1.0], i, vp);
-                let far_pw  = unproject_inv([u, v,  1.0], i, vp);
+                let near_pw = unproject_inv([u, v, -1.0], i, VIEWPORT);
+                let far_pw  = unproject_inv([u, v,  1.0], i, VIEWPORT);
 
                 let mut ray_origin = near_pw;
                 let mut ray_dir = vec3_sub(far_pw, near_pw);

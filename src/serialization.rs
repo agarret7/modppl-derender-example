@@ -5,7 +5,7 @@ use std::{
     io::prelude::*
 };
 use crate::types::*;
-use crate::ray::{H,W,AREA};
+use crate::config::{H,W,AREA};
 
 
 /* out */

@@ -4,6 +4,7 @@ use modppl::prelude::*;
 
 use crate::types::*;
 use crate::linear::*;
+use crate::config::*;
 use crate::ray::*;
 
 
@@ -123,10 +124,6 @@ impl Distribution<Colors,(Colors,f32)> for NoisyColors {
 
 
 /* dynamic generative functions */
-
-pub const FOVY: f32 = PI/2.0;
-pub const NEAR: f32 = 0.2;
-pub const FAR : f32 = 7.5;
 
 dyngen!(
 pub fn grounded_depth_model() -> Depths {
