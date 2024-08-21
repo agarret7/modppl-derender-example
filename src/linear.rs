@@ -45,7 +45,7 @@ pub fn unproject_inv(pos: Vec3, inv_m: Mat4, vp: Vec4) -> Vec3 {
 
     v[0] = 2.0 * (pos[0] - vp[0]) / vp[2] - 1.0;
     v[1] = 2.0 * (pos[1] - vp[1]) / vp[3] - 1.0;
-    v[2] = 2.0 *  pos[2]                  - 1.0;
+    v[2] = pos[2];
     v[3] = 1.0;
 
     let v = mat4_mulv(inv_m, v);
