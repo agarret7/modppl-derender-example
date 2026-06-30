@@ -1,4 +1,10 @@
-use crate::types::*;
+/* types */ 
+
+pub type Mat4 = [[f32; 4]; 4];
+pub type Vec3 = [f32; 3];
+pub type Vec4 = [f32; 4];
+pub type Quat = Vec4;
+pub type Pose = [f32; 7];
 
 
 /* init */ 

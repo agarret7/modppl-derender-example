@@ -4,7 +4,7 @@ use std::{
     fs::{File, create_dir_all},
     io::prelude::*
 };
-use crate::types::*;
+use crate::image::*;
 use crate::config::{H,W,AREA};
 
 
@@ -72,19 +72,35 @@ fn save_bitmap_image(path: &str, image: &Vec<u8>, width: usize, height: usize) {
 
     file.write_all(unsafe { any_as_u8_slice(&file_header) }).expect("error writing u8 slice");
     file.write_all(unsafe { any_as_u8_slice(&info_header) }).expect("error writing u8 slice");
-    dbg!(image.len() + BMP_HEADER_SIZE);
     file.write_all(image).expect("error writing u8 slice");
 }
 
+/// loads a 24-bit BMP, resampling (nearest-neighbor) to the model's current
+/// `W()`x`H()` if the file's own dimensions (read from its header, not
+/// assumed) differ -- a fixed test asset like `tests/ball.bmp` is a particular
+/// resolution regardless of whatever `RES` the model is currently configured
+/// for, and silently misreading it as the wrong width corrupts every row
+/// (each row is read at the wrong stride) without erroring.
 pub fn load_colors(path: &str) -> Colors {
     let mut f = File::open(path).expect("error opening file");
-    let mut buf = vec![0; BMP_HEADER_SIZE + AREA*3];
+    let mut header = [0u8; BMP_HEADER_SIZE];
+    f.read_exact(&mut header).expect("error reading BMP header");
+    let file_w = i32::from_le_bytes(header[18..22].try_into().unwrap()) as usize;
+    let file_h = i32::from_le_bytes(header[22..26].try_into().unwrap()).unsigned_abs() as usize;
+
+    let mut buf = vec![0; file_w*file_h*3];
     f.read_exact(&mut buf).expect("error reading file");
-    let mut cs = vec![[0.0; 3]; AREA];
-    for i in 0..AREA {
-        cs[i][0] = (buf[BMP_HEADER_SIZE + 3*i  ] as f32) / 255.0;
-        cs[i][1] = (buf[BMP_HEADER_SIZE + 3*i+1] as f32) / 255.0;
-        cs[i][2] = (buf[BMP_HEADER_SIZE + 3*i+2] as f32) / 255.0;
+    let pixel = |x: usize, y: usize, c: usize| -> f32 {
+        buf[(y*file_w + x)*3 + c] as f32 / 255.0
+    };
+
+    let mut cs = vec![[0.0; 3]; AREA()];
+    for y in 0..H() {
+        for x in 0..W() {
+            let fx = x * file_w / W();
+            let fy = y * file_h / H();
+            cs[y*W() + x] = [pixel(fx, fy, 0), pixel(fx, fy, 1), pixel(fx, fy, 2)];
+        }
     }
     cs
 }
@@ -153,6 +169,65 @@ fn depths_to_colors(src: &Depths) -> Colors {
     out
 }
 
+/* tiny bitmap font, for burning text labels (e.g. annealing temperature) into frames */
+
+fn glyph(c: char) -> [&'static str; 5] {
+    match c {
+        '0' => ["###", "#.#", "#.#", "#.#", "###"],
+        '1' => [".#.", "##.", ".#.", ".#.", "###"],
+        '2' => ["###", "..#", "###", "#..", "###"],
+        '3' => ["###", "..#", "###", "..#", "###"],
+        '4' => ["#.#", "#.#", "###", "..#", "..#"],
+        '5' => ["###", "#..", "###", "..#", "###"],
+        '6' => ["###", "#..", "###", "#.#", "###"],
+        '7' => ["###", "..#", "..#", "..#", "..#"],
+        '8' => ["###", "#.#", "###", "#.#", "###"],
+        '9' => ["###", "#.#", "###", "..#", "###"],
+        '.' => ["...", "...", "...", "...", ".#."],
+        'T' => ["###", ".#.", ".#.", ".#.", ".#."],
+        '=' => ["...", "###", "...", "###", "..."],
+        _   => ["...", "...", "...", "...", "..."],
+    }
+}
+
+/// burns a text label into the top-left corner of an interleaved RGB `raw` buffer
+/// of the given `width` (the buffer may be wider than the labeled region, e.g.
+/// the left half of a side-by-side comparison frame).
+fn draw_text(raw: &mut [u8], width: usize, text: &str, x0: usize, y0: usize, scale: usize) {
+    for (ci, c) in text.chars().enumerate() {
+        let gx0 = x0 + ci * (3 * scale + scale);
+        for (row, line) in glyph(c).iter().enumerate() {
+            for (col, px) in line.chars().enumerate() {
+                if px != '#' { continue; }
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        let x = gx0 + col * scale + dx;
+                        let y = y0 + row * scale + dy;
+                        let idx = (y * width + x) * 3;
+                        if idx + 2 < raw.len() {
+                            raw[idx] = 255;
+                            raw[idx + 1] = 255;
+                            raw[idx + 2] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// saves a raw `0x00RRGGBB`-per-pixel buffer (e.g. a minifb window buffer) as
+/// a BMP -- for dumping a live demo's on-screen frame to disk on demand.
+pub fn save_snapshot(path: &str, buffer: &[u32], width: usize, height: usize) {
+    let mut raw = Vec::with_capacity(buffer.len() * 3);
+    for &px in buffer {
+        raw.push((px & 0xFF) as u8);         // B
+        raw.push(((px >> 8) & 0xFF) as u8);  // G
+        raw.push(((px >> 16) & 0xFF) as u8); // R
+    }
+    save_bitmap_image(path, &raw, width, height);
+}
+
 fn colors_to_raw(c: &Colors) -> Vec<u8> {
     let mut out = vec![];
     for i in 0..c.len() {
@@ -168,25 +243,25 @@ fn colors_to_raw(c: &Colors) -> Vec<u8> {
 
 pub fn save_colors(path: &str, c: &Colors) {
     let raw = colors_to_raw(c);
-    save_bitmap_image(path, &raw, W, H);
+    save_bitmap_image(path, &raw, W(), H());
 }
 
 pub fn save_colors2(path: &str, c1: &Colors, c2: &Colors) {
     let raw1 = colors_to_raw(c1);
     let raw2 = colors_to_raw(c2);
     let mut raw_combined = vec![];
-    for y in 0..H {
-        for x in 0..2*W {
+    for y in 0..H() {
+        for x in 0..2*W() {
             for i in 0..=2 {
-                if x < W {
-                    raw_combined.push(raw1[y*W*3 + x*3 + i]);
+                if x < W() {
+                    raw_combined.push(raw1[y*W()*3 + x*3 + i]);
                 } else {
-                    raw_combined.push(raw2[y*W*3 + (x - W)*3 + i]);
+                    raw_combined.push(raw2[y*W()*3 + (x - W())*3 + i]);
                 }
             }
         }
     }
-    save_bitmap_image(path, &raw_combined, 2*W, H);
+    save_bitmap_image(path, &raw_combined, 2*W(), H());
 }
 
 pub fn save_depths(path: &str, d: &Depths) {
@@ -202,7 +277,7 @@ pub fn save_depths2(path: &str, d1: &Depths, d2: &Depths) {
 
 pub fn save_colors_video(path: &str, cs: &Vec<Colors>, framerate: u32) {
     let raws = cs.iter().map(|c| colors_to_raw(c)).collect::<Vec<Vec<u8>>>();
-    save_bitmap_video(path, &raws, W, H, framerate);
+    save_bitmap_video(path, &raws, W(), H(), framerate);
 }
 
 pub fn save_colors2_video(path: &str, cs1: &Vec<Colors>, cs2: &Vec<Colors>, framerate: u32) {
@@ -212,25 +287,52 @@ pub fn save_colors2_video(path: &str, cs1: &Vec<Colors>, cs2: &Vec<Colors>, fram
         let raw1 = colors_to_raw(&cs1[i]);
         let raw2 = colors_to_raw(&cs2[i]);
         let mut raw_combined = vec![];
-        for y in 0..H {
-            for x in 0..2*W {
+        for y in 0..H() {
+            for x in 0..2*W() {
                 for i in 0..=2 {
-                    if x < W {
-                        raw_combined.push(raw1[y*W*3 + x*3 + i]);
+                    if x < W() {
+                        raw_combined.push(raw1[y*W()*3 + x*3 + i]);
                     } else {
-                        raw_combined.push(raw2[y*W*3 + (x - W)*3 + i]);
+                        raw_combined.push(raw2[y*W()*3 + (x - W())*3 + i]);
                     }
                 }
             }
         }
         raws.push(raw_combined);
     }
-    save_bitmap_video(path, &raws, 2*W, H, framerate);
+    save_bitmap_video(path, &raws, 2*W(), H(), framerate);
+}
+
+/// like `save_colors2_video`, but burns a per-frame text `labels[i]` into the
+/// top-left corner of the left (`cs1`) panel, e.g. to display annealing temperature.
+pub fn save_colors2_video_labeled(path: &str, cs1: &Vec<Colors>, cs2: &Vec<Colors>, labels: &Vec<String>, framerate: u32) {
+    assert_eq!(cs1.len(), cs2.len());
+    assert_eq!(cs1.len(), labels.len());
+    let mut raws = vec![];
+    for i in 0..cs1.len() {
+        let raw1 = colors_to_raw(&cs1[i]);
+        let raw2 = colors_to_raw(&cs2[i]);
+        let mut raw_combined = vec![];
+        for y in 0..H() {
+            for x in 0..2*W() {
+                for c in 0..=2 {
+                    if x < W() {
+                        raw_combined.push(raw1[y*W()*3 + x*3 + c]);
+                    } else {
+                        raw_combined.push(raw2[y*W()*3 + (x - W())*3 + c]);
+                    }
+                }
+            }
+        }
+        draw_text(&mut raw_combined, 2*W(), &labels[i], 4, 4, 2);
+        raws.push(raw_combined);
+    }
+    save_bitmap_video(path, &raws, 2*W(), H(), framerate);
 }
 
 pub fn save_depths_video(path: &str, ds: &Vec<Depths>, framerate: u32) {
     let raws = ds.iter().map(|d| colors_to_raw(&depths_to_colors(d))).collect::<Vec<Vec<u8>>>();
-    save_bitmap_video(path, &raws, W, H, framerate);
+    save_bitmap_video(path, &raws, W(), H(), framerate);
 }
 
 pub fn save_depths2_video(path: &str, ds1: &Vec<Depths>, ds2: &Vec<Depths>, framerate: u32) {
@@ -240,18 +342,18 @@ pub fn save_depths2_video(path: &str, ds1: &Vec<Depths>, ds2: &Vec<Depths>, fram
         let raw1 = colors_to_raw(&depths_to_colors(&ds1[i]));
         let raw2 = colors_to_raw(&depths_to_colors(&ds2[i]));
         let mut raw_combined = vec![];
-        for y in 0..H {
-            for x in 0..2*W {
+        for y in 0..H() {
+            for x in 0..2*W() {
                 for i in 0..=2 {
-                    if x < W {
-                        raw_combined.push(raw1[y*W*3 + x*3 + i]);
+                    if x < W() {
+                        raw_combined.push(raw1[y*W()*3 + x*3 + i]);
                     } else {
-                        raw_combined.push(raw2[y*W*3 + (x - W)*3 + i]);
+                        raw_combined.push(raw2[y*W()*3 + (x - W())*3 + i]);
                     }
                 }
             }
         }
         raws.push(raw_combined);
     }
-    save_bitmap_video(path, &raws, 2*W, H, framerate);
+    save_bitmap_video(path, &raws, 2*W(), H(), framerate);
 }

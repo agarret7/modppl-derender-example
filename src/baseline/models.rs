@@ -2,13 +2,12 @@ use std::f32::consts::PI;
 use float_extras::f64::erf;
 use modppl::prelude::*;
 
-use crate::types::*;
-use crate::linear::*;
+use crate::baseline::linear::*;
+use crate::baseline::solid::*;
+use crate::baseline::ray::*;
 use crate::config::*;
-use crate::ray::*;
+use crate::image::*;
 
-
-/* pixel likelihoods */
 
 /// truncated Gaussian distribution type
 pub struct TruncatedNormal { }
@@ -43,6 +42,8 @@ impl Distribution<f32,(f32,f32,f32,f32)> for TruncatedNormal {
     }
 }
 
+/* pixel likelihoods */
+
 /// noisy depth distribution type
 struct NoisyDepths { }
 const noisy_depths: NoisyDepths = NoisyDepths { };
@@ -51,10 +52,10 @@ impl Distribution<Depths,(Depths,f32)> for NoisyDepths {
     fn logpdf(&self, noisy_pixels: &Depths, pixels_and_noise: (Depths,f32)) -> f64 {
         let (pixels, noise) = pixels_and_noise;
         let mut w = 0.;
-        for y in 0..H {
-            for x in 0..W {
-                let noisy_p = noisy_pixels[y*W + x];
-                let true_p = pixels[y*W + x];
+        for y in 0..H() {
+            for x in 0..W() {
+                let noisy_p = noisy_pixels[y*W() + x];
+                let true_p = pixels[y*W() + x];
                 w += truncated_normal.logpdf(&noisy_p, (true_p, noise, 0.0, 1.0))
             }
         }
@@ -65,13 +66,13 @@ impl Distribution<Depths,(Depths,f32)> for NoisyDepths {
         let (pixels, noise) = pixels_and_noise;
         let noise_f64 = noise as f64;
         let mut noisy_pixels = vec![];
-        for y in 0..H {
-            for x in 0..W {
+        for y in 0..H() {
+            for x in 0..W() {
                 // Add mixture of noise from uniform and gaussian
                 if u01(rng) < noise_f64 {
                     noisy_pixels.push(u01(rng) as f32);
                 } else {
-                    let noisy_p = truncated_normal.random(rng, (pixels[y*W + x], noise, 0.0, 1.0));
+                    let noisy_p = truncated_normal.random(rng, (pixels[y*W() + x], noise, 0.0, 1.0));
                     noisy_pixels.push(noisy_p as f32);
                 }
             }
@@ -88,11 +89,11 @@ impl Distribution<Colors,(Colors,f32)> for NoisyColors {
     fn logpdf(&self, noisy_pixels: &Colors, pixels_and_noise: (Colors,f32)) -> f64 {
         let (pixels, noise) = pixels_and_noise;
         let mut w = 0.;
-        for y in 0..H {
-            for x in 0..W {
+        for y in 0..H() {
+            for x in 0..W() {
                 for i in 0..=2 {
-                    let noisy_p = noisy_pixels[y*W + x][i];
-                    let true_p = pixels[y*W + x][i];
+                    let noisy_p = noisy_pixels[y*W() + x][i];
+                    let true_p = pixels[y*W() + x][i];
                     w += truncated_normal.logpdf(&noisy_p, (true_p, noise, 0.0, 1.0))
                 }
             }
@@ -104,15 +105,15 @@ impl Distribution<Colors,(Colors,f32)> for NoisyColors {
         let (pixels, noise) = pixels_and_noise;
         let noise_f64 = noise as f64;
         let mut noisy_pixels = vec![];
-        for y in 0..H {
-            for x in 0..W {
+        for y in 0..H() {
+            for x in 0..W() {
                 // Add mixture of noise from uniform and gaussian
                 let mut noisy_p = vec3_zero();
                 for i in 0..=2 {
                     if u01(rng) < noise_f64 {
                         noisy_p[i] = u01(rng) as f32;
                     } else {
-                        noisy_p[i] = truncated_normal.random(rng, (pixels[y*W + x][i], noise, 0., 1.)) as f32;
+                        noisy_p[i] = truncated_normal.random(rng, (pixels[y*W() + x][i], noise, 0., 1.)) as f32;
                     }
                 }
                 noisy_pixels.push(noisy_p)
@@ -139,8 +140,8 @@ pub fn grounded_depth_model() -> Depths {
     );
 
     // render
-    let proj = perspective(PI/2.0, W as f32/H as f32, NEAR, FAR);
-    let mut pixels = vec![0.0; AREA];
+    let proj = perspective(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
+    let mut pixels = vec![0.0; AREA()];
     raytrace_depths(x, proj, &vec![ground], &mut pixels);
     noisy_depths(pixels.clone(), 0.1) %= "observation";
 
@@ -175,8 +176,8 @@ pub fn sphere_color_model() -> Colors {
     );
 
     // render
-    let proj = perspective(PI/2.0, W as f32/H as f32, NEAR, FAR);
-    let mut pixels = vec![[0.0; 3]; AREA];
+    let proj = perspective(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
+    let mut pixels = vec![[0.0; 3]; AREA()];
     raytrace_colors(x, proj, &vec![ground, sphere], background_color, &mut pixels);
     noisy_colors(pixels.clone(), 0.1) %= "observation";
 
@@ -195,7 +196,7 @@ pub fn ball_model() -> Colors {
     let global_c = vec3_scale(&[0.9, 1.0, 1.0], brightness);
     let background_color = global_c;
 
-    // ground
+    // table
     let mut table_c = vec3_zero();
     table_c[0] = (uniform(0.0, 1.0) %= "table_c0") as f32;
     table_c[1] = (uniform(0.0, 1.0) %= "table_c1") as f32;
@@ -219,8 +220,8 @@ pub fn ball_model() -> Colors {
     );
 
     // render
-    let proj = perspective(PI/2.0, W as f32/H as f32, NEAR, FAR);
-    let mut pixels = vec![[0.0; 3]; AREA];
+    let proj = perspective(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
+    let mut pixels = vec![[0.0; 3]; AREA()];
     raytrace_colors(x, proj, &vec![table, ball], background_color, &mut pixels);
     noisy_colors(pixels.clone(), 0.1) %= "observation";
 
