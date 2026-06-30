@@ -472,39 +472,14 @@ pub fn cube_rgbd_model(noise: (f32,f32)) -> (Depths, Colors) {
     let scene = vec![ground, cube];
     let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
 
-    // depth observation: position/size/pose
+    // depth + flat color observations, from one shared intersection pass
+    // (see raytrace_depths_and_flat_colors -- avoids casting two full sets
+    // of camera rays that would do identical ray setup and nearest-hit search)
     let mut depths = vec![0.0; AREA()];
-    raytrace_depths(x, proj, &scene, &mut depths);
-    noisy_depths(depths.clone(), depth_noise) %= "depth_observation";
-
-    // flat color observation: which face is which
     let mut colors = vec![[0.0; 3]; AREA()];
-    raytrace_flat_colors(x, proj, &scene, [0.7, 0.7, 0.7], &mut colors);
+    raytrace_depths_and_flat_colors(x, proj, &scene, [0.7, 0.7, 0.7], &mut depths, &mut colors);
+    noisy_depths(depths.clone(), depth_noise) %= "depth_observation";
     noisy_colors(colors.clone(), color_noise) %= "color_observation";
 
     (depths, colors)
-});
-
-dyngen!(
-pub fn rgbd_drift(trace: Weak<DynTrace<(f32,f32),(Depths,Colors)>>, mask: Vec<&str>, stdev: f64) {
-    let trace = trace.upgrade().unwrap();
-    for addr in mask.iter() {
-        normal(trace.data.read::<f64>(addr), stdev) %= addr;
-    }
-});
-
-dyngen!(
-pub fn gaussian_drift(trace: Weak<DynTrace<(),Colors>>, mask: Vec<&str>, stdev: f64) {
-    let trace = trace.upgrade().unwrap();
-    for addr in mask.iter() {
-        normal(trace.data.read::<f64>(addr), stdev) %= addr;
-    }
-});
-
-dyngen!(
-pub fn noise_drift(trace: Weak<DynTrace<f32,Colors>>, mask: Vec<&str>, stdev: f64) {
-    let trace = trace.upgrade().unwrap();
-    for addr in mask.iter() {
-        normal(trace.data.read::<f64>(addr), stdev) %= addr;
-    }
 });

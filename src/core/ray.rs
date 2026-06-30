@@ -43,7 +43,7 @@ fn view_to_ndch(pos: &Vec3A, vp: &[f32; 4]) -> Vec4 {
 pub fn raytrace_depths(x: Affine3A, proj: Mat4, scene: &Scene, out: &mut Depths) {
     let i = x * proj.inverse();
 
-    for y in 0..H() {
+    out.par_chunks_mut(W()).enumerate().for_each(|(y, row)| {
         for x in 0..W() {
             let near_ndch = view_to_ndch(&[x as f32, (H() - y) as f32, -1.0].into(), &VP());
             let far_ndch = view_to_ndch(&[x as f32, (H() - y) as f32,  1.0].into(), &VP());
@@ -63,11 +63,73 @@ pub fn raytrace_depths(x: Affine3A, proj: Mat4, scene: &Scene, out: &mut Depths)
                     } else {
                         0.0
                     };
-                    out[y * W() + x] = lm;
+                    row[x] = lm;
                 }
             }
         }
-    }
+    });
+}
+
+/// shared ray-cast pass producing both a depth map and a flat (no-lighting)
+/// color map from the *same* per-pixel intersection -- for a model that needs
+/// both (e.g. `cube_rgbd_model`), calling `raytrace_depths` and
+/// `raytrace_flat_colors` separately would cast two full sets of camera rays
+/// that do identical ray setup and nearest-hit search, differing only in what
+/// they do with the hit. This does that work once.
+pub fn raytrace_depths_and_flat_colors(
+    x: Affine3A, proj: Mat4, scene: &Scene, background_color: Color,
+    depths_out: &mut Depths, colors_out: &mut Colors
+) {
+    let i = x * proj.inverse();
+
+    depths_out.par_chunks_mut(W())
+        .zip(colors_out.par_chunks_mut(W()))
+        .enumerate()
+        .for_each(|(y, (depth_row, color_row))| {
+            for x in 0..W() {
+                let u = x as f32 + 0.5;
+                let v = (H() - y) as f32 - 0.5;
+
+                let near_ndch = view_to_ndch(&[u, v, -1.0].into(), &VP());
+                let far_ndch = view_to_ndch(&[u, v,  1.0].into(), &VP());
+
+                let near_pw = i * near_ndch;
+                let far_pw = i * far_ndch;
+                let near_pw: Vec3A = (near_pw / near_pw[3]).truncate().into();
+                let far_pw: Vec3A = (far_pw / far_pw[3]).truncate().into();
+
+                let ray_origin = near_pw;
+                let ray_dir = (far_pw - near_pw).normalize();
+
+                let mut distance = f32::MAX;
+                let mut hit = false;
+                let mut normalv = Vec3A::ZERO;
+                let mut hit_idx = 0;
+
+                for (idx, s) in scene.iter().enumerate() {
+                    if let Some((d, n)) = s.0.ray_intersect_reflect(ray_origin, ray_dir) {
+                        if d < distance {
+                            hit = true;
+                            distance = d;
+                            normalv = n;
+                            hit_idx = idx;
+                        }
+                    }
+                }
+
+                depth_row[x] = if hit && NEAR() <= distance && distance <= FAR() {
+                    1.0 - (distance - NEAR()) / (FAR() - NEAR())
+                } else {
+                    0.0
+                };
+
+                color_row[x] = if hit {
+                    scene[hit_idx].0.color_at(normalv, scene[hit_idx].1)
+                } else {
+                    background_color
+                };
+            }
+        });
 }
 
 /// single-sample, no-lighting "flat" color raytrace: returns each hit solid's
