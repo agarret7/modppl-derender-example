@@ -189,10 +189,9 @@ const RUBIKS_NOISE: f32 = 0.05;
 fn test_derender_rubiks() {
     create_dir_all("out").expect("error creating 'out' dir");
 
-    // simulate constraints (fix the camera yaw so the cube stays in frame)
-    let mut synth_constraints = DynTrie::new();
-    synth_constraints.observe("cam_yaw", Arc::new(0.0));
-    let trace = rubiks_model.generate(RUBIKS_NOISE, synth_constraints).0;
+    // orbital camera always points at the cube, so no constraints needed to keep
+    // it in frame -- sample everything from the prior.
+    let trace = rubiks_model.generate(RUBIKS_NOISE, DynTrie::new()).0;
 
     // condition on the rendered observation
     let mut constraints = DynTrie::new();
@@ -200,9 +199,16 @@ fn test_derender_rubiks() {
     constraints.observe("observation", Arc::new(observation.clone()));
     let trace = rubiks_model.generate(RUBIKS_NOISE, constraints).0;
 
-    let mut cam_mask = AddrMap::new();
-    cam_mask.visit("cam_y");
-    cam_mask.visit("cam_yaw");
+    let mut orbit_azimuth_mask = AddrMap::new();
+    orbit_azimuth_mask.visit("orbit_azimuth");
+
+    let mut orbit_elev_radius_mask = AddrMap::new();
+    orbit_elev_radius_mask.visit("orbit_sin_elevation");
+    orbit_elev_radius_mask.visit("orbit_radius");
+
+    let mut lookat_jitter_mask = AddrMap::new();
+    lookat_jitter_mask.visit("lookat_yaw_jitter");
+    lookat_jitter_mask.visit("lookat_pitch_jitter");
 
     let mut env_mask = AddrMap::new();
     env_mask.visit("table_c0");
@@ -218,7 +224,9 @@ fn test_derender_rubiks() {
     const NUM_ITERS: usize = 250;
     let start = std::time::Instant::now();
     let renders: Vec<Colors> = Kernel::new(&rubiks_model, trace)
-        .regen_mh(&cam_mask)
+        .regen_mh(&orbit_azimuth_mask)
+        .regen_mh(&orbit_elev_radius_mask)
+        .regen_mh(&lookat_jitter_mask)
         .regen_mh(&env_mask)
         .regen_mh(&cube_mask)
         .mh(&noise_drift, (vec!["cube_u", "cube_v", "cube_size"], 0.1))

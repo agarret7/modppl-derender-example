@@ -224,13 +224,13 @@ impl Solid for Cube {
         // scheme: white/yellow opposite, red/orange opposite, blue/green opposite.
         const WHITE:  Color = [1.000, 1.000, 1.000]; // +Y
         const YELLOW: Color = [0.000, 1.000, 1.000]; // -Y
-        const RED:    Color = [0.000, 0.000, 0.835]; // +X
-        const ORANGE: Color = [0.000, 0.349, 1.000]; // -X
+        const RED:    Color = [0.000, 0.000, 0.835]; // -X
+        const ORANGE: Color = [0.000, 0.349, 1.000]; // +X
         const BLUE:   Color = [0.792, 0.267, 0.000]; // +Z
         const GREEN:  Color = [0.282, 0.608, 0.000]; // -Z
 
-        if normal.x > 0.5      { RED }
-        else if normal.x < -0.5 { ORANGE }
+        if normal.x > 0.5      { ORANGE }
+        else if normal.x < -0.5 { RED }
         else if normal.y > 0.5  { WHITE }
         else if normal.y < -0.5 { YELLOW }
         else if normal.z > 0.5  { BLUE }
@@ -325,8 +325,8 @@ mod tests {
         let dummy_base = [0.0, 0.0, 0.0];
 
         let colors = [
-            cube.color_at([1.0, 0.0, 0.0].into(), dummy_base),  // +X red
-            cube.color_at([-1.0, 0.0, 0.0].into(), dummy_base), // -X orange
+            cube.color_at([1.0, 0.0, 0.0].into(), dummy_base),  // +X orange
+            cube.color_at([-1.0, 0.0, 0.0].into(), dummy_base), // -X red
             cube.color_at([0.0, 1.0, 0.0].into(), dummy_base),  // +Y white
             cube.color_at([0.0, -1.0, 0.0].into(), dummy_base), // -Y yellow
             cube.color_at([0.0, 0.0, 1.0].into(), dummy_base),  // +Z blue

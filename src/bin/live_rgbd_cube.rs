@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // than an idealized sensor. Too-confident a likelihood treats real sensor
 // noise as signal, driving spurious inference moves instead of absorbing it.
 const DEPTH_NOISE: f32 = 0.2;
-const COLOR_NOISE: f32 = 0.25;
+const COLOR_NOISE: f32 = 0.32;
 const SWEEPS_PER_FRAME: usize = 5;
 
 /// finds the (min, max) of the valid (non-NaN/dropout) values in a depth
@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut orbit_radius_elevation_mask = AddrMap::new();
     orbit_radius_elevation_mask.visit("orbit_radius");
-    orbit_radius_elevation_mask.visit("orbit_cos_elevation");
+    orbit_radius_elevation_mask.visit("orbit_sin_elevation");
 
     // tight prior (normal(0, 0.05) rad) already keeps proposals small, so a
     // plain regen_mh resample is fine here (no jump risk like orbit_angle's
@@ -101,6 +101,12 @@ fn main() -> anyhow::Result<()> {
     let mut lookat_jitter_mask = AddrMap::new();
     lookat_jitter_mask.visit("lookat_yaw_jitter");
     lookat_jitter_mask.visit("lookat_pitch_jitter");
+
+    // strongly identified by every ground-hit pixel's color (unlike the
+    // weakly-constrained orbit latents), so a plain regen_mh resample each
+    // sweep is fine -- no drift/mixture treatment needed.
+    let mut ground_albedo_mask = AddrMap::new();
+    ground_albedo_mask.visit("ground_albedo");
 
     // 2x2 grid: observed depth | observed color  //  hypothesis depth | hypothesis color
     let mut window = Window::new(
@@ -152,10 +158,11 @@ fn main() -> anyhow::Result<()> {
                 if u01(&mut rng) < ORBIT_RESAMPLE_PROB {
                     regen_mh(&cube_rgbd_model, t, &orbit_radius_elevation_mask)
                 } else {
-                    mh(&cube_rgbd_model, t, &rgbd_drift, (vec!["orbit_radius", "orbit_cos_elevation"], 0.05))
+                    mh(&cube_rgbd_model, t, &rgbd_drift, (vec!["orbit_radius", "orbit_sin_elevation"], 0.05))
                 }
             })
             .regen_mh(&lookat_jitter_mask)
+            .regen_mh(&ground_albedo_mask)
             .take(SWEEPS_PER_FRAME)
             .last()
             .unwrap();

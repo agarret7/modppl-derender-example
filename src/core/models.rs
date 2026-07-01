@@ -293,12 +293,27 @@ pub fn mug_model(noise: f32) -> Colors {
 
 dyngen!(
 pub fn rubiks_model(noise: f32) -> Colors {
-    // camera pose
-    let cam_y = uniform(0.5, 2.0) %= "cam_y";
-    let cam_yaw = normal(0.0, PI as f64/8.0) %= "cam_yaw";
-    let x = Affine3A::from_rotation_translation(
-        Quat::from_euler(EulerRot::XYZ, cam_yaw as f32, 0.0, 0.0),
-        [0.0, cam_y as f32, 1.2].into()
+    // cube: unknown position and size, resting on the table.
+    // Color is fixed per-face by `Cube::color_at` -- no color latents.
+    let u = (uniform(-1.0, 1.0) %= "cube_u") as f32;
+    let v = (uniform(-1.0, 0.0) %= "cube_v") as f32;
+    let half_extent = (uniform(0.2, 0.4) %= "cube_size") as f32;
+    let cube = (
+        Box::new(Cube { center: [u, half_extent, v].into(), half_extent }) as Box<dyn Solid>,
+        [0.0, 0.0, 0.0] // ignored: Cube::color_at overrides per-face
+    );
+
+    // orbital camera orbiting around the cube center -- the same parameterization
+    // as cube_rgbd_model, so the synthetic and real-world models share structure.
+    let orbit_azimuth        = (uniform(0.0, 2.0 * PI as f64) %= "orbit_azimuth") as f32;
+    let orbit_sin_elevation  = (uniform(0.0, 1.0) %= "orbit_sin_elevation") as f32;
+    let orbit_radius         = (uniform(1.0, 3.0) %= "orbit_radius") as f32;
+    let lookat_yaw_jitter    = (normal(0.0, 0.05) %= "lookat_yaw_jitter") as f32;
+    let lookat_pitch_jitter  = (normal(0.0, 0.05) %= "lookat_pitch_jitter") as f32;
+    let x = orbit_camera(
+        orbit_azimuth, orbit_sin_elevation, orbit_radius,
+        [u, half_extent, v].into(),
+        lookat_yaw_jitter, lookat_pitch_jitter,
     );
 
     // background
@@ -313,17 +328,6 @@ pub fn rubiks_model(noise: f32) -> Colors {
     let table = (
         Box::new(Plane { origin: Vec3A::ZERO, normal: [0.0, 1.0, 0.0].into() }) as Box<dyn Solid>,
         table_c
-    );
-
-    // cube: a Rubik's cube resting on the table, with unknown position and size.
-    // Color is fixed per-face by `Cube::color_at`, so it carries no unknown color
-    // latents (unlike `mug_model`'s cylinder).
-    let u = (uniform(-1.0, 1.0) %= "cube_u") as f32;
-    let v = (uniform(-1.0, 0.0) %= "cube_v") as f32;
-    let half_extent = (uniform(0.2, 0.4) %= "cube_size") as f32;
-    let cube = (
-        Box::new(Cube { center: [u, half_extent, v].into(), half_extent }) as Box<dyn Solid>,
-        [0.0, 0.0, 0.0] // ignored: Cube::color_at overrides per-face
     );
 
     // render
@@ -381,20 +385,16 @@ pub fn depth_drift(trace: Weak<DynTrace<f32,Depths>>, mask: Vec<&str>, stdev: f6
 });
 
 /// builds a camera-to-world transform for a camera on a hemisphere around
-/// `target` (the camera can't orbit below the table) at the given `azimuth`
-/// (radians, full circle) and `cos_elevation` (elevation measured from the
-/// horizon, 0 = level with `target`, pi/2 = directly overhead -- the max
-/// angle, since the hemisphere's pole is straight up), at distance `radius`,
-/// looking at `target` plus a small angular offset (`jitter_yaw`,
-/// `jitter_pitch`, in radians).
+/// `target` at the given `azimuth` (radians, full circle) and `sin_elevation`
+/// (sine of the elevation above the horizon, 0 = level, 1 = directly overhead),
+/// at distance `radius`, looking at `target` plus a small angular offset
+/// (`jitter_yaw`, `jitter_pitch`, in radians).
 ///
-/// Takes `cos(elevation)` rather than the elevation angle itself: for a
-/// *uniform* prior over the hemisphere's surface/solid angle, the elevation
-/// can't be sampled uniformly -- the hemisphere's area element is `sin(theta)
-/// dtheta dphi`, so equal angular steps near the pole sweep much less area
-/// than near the horizon, biasing toward overhead positions. Sampling
-/// `cos(elevation) ~ Uniform(0,1)` (and azimuth ~ Uniform(0,2pi)) corrects
-/// for this and gives true uniform-area coverage.
+/// Takes `sin(elevation)` rather than the elevation angle itself: the
+/// hemisphere area element in (elevation, azimuth) is `cos(elevation) de dφ`,
+/// so sampling elevation uniformly biases toward the pole. Sampling
+/// `sin(elevation) ~ Uniform(0,1)` gives pdf ∝ cos(elevation), which exactly
+/// cancels the area element and produces uniform solid-angle coverage.
 ///
 /// The look-at is offset by a small jitter rather than pinned exactly to
 /// `target`: an exact look-at couples camera orientation tightly to the
@@ -403,8 +403,8 @@ pub fn depth_drift(trace: Weak<DynTrace<f32,Depths>>, mask: Vec<&str>, stdev: f6
 /// the cube) -- amplifying a small positional change into a large change in
 /// the rendered image. The jitter decouples the two, restoring a smooth,
 /// local relationship between small position changes and small image changes.
-fn orbit_camera(azimuth: f32, cos_elevation: f32, radius: f32, target: Vec3A, jitter_yaw: f32, jitter_pitch: f32) -> Affine3A {
-    let sin_elevation = (1.0 - cos_elevation*cos_elevation).sqrt();
+fn orbit_camera(azimuth: f32, sin_elevation: f32, radius: f32, target: Vec3A, jitter_yaw: f32, jitter_pitch: f32) -> Affine3A {
+    let cos_elevation = (1.0 - sin_elevation * sin_elevation).sqrt();
     let height = radius * sin_elevation;
     let horiz = radius * cos_elevation;
     let eye: Vec3 = (target + Vec3A::new(horiz * azimuth.cos(), height, horiz * azimuth.sin())).into();
@@ -454,19 +454,23 @@ pub fn cube_rgbd_model(noise: (f32,f32)) -> (Depths, Colors) {
     // stdev (~3 deg) decouples camera orientation from the cube's exact
     // hypothesized position.
     let orbit_azimuth = (uniform(0.0, 2.0*PI as f64) %= "orbit_azimuth") as f32;
-    let orbit_cos_elevation = (uniform(0.0, 1.0) %= "orbit_cos_elevation") as f32;
+    let orbit_sin_elevation = (uniform(0.0, 1.0) %= "orbit_sin_elevation") as f32;
     let orbit_radius = (uniform(0.25, 0.7) %= "orbit_radius") as f32;
     let lookat_yaw_jitter = (normal(0.0, 0.05) %= "lookat_yaw_jitter") as f32;
     let lookat_pitch_jitter = (normal(0.0, 0.05) %= "lookat_pitch_jitter") as f32;
     let x = orbit_camera(
-        orbit_azimuth, orbit_cos_elevation, orbit_radius, [u, CUBE_HALF_EXTENT, v].into(),
+        orbit_azimuth, orbit_sin_elevation, orbit_radius, [u, CUBE_HALF_EXTENT, v].into(),
         lookat_yaw_jitter, lookat_pitch_jitter
     );
 
-    // ground
+    // ground: unknown albedo, since the ground plane is infinite and so
+    // dominates most of a close-up tabletop frame -- a fixed guess (e.g. mid
+    // gray) badly mismatches a real dark desk/table, swamping the color
+    // likelihood with avoidable error on every such pixel.
+    let ground_albedo = (uniform(0.0, 1.0) %= "ground_albedo") as f32;
     let ground = (
         Box::new(Plane { origin: Vec3A::ZERO, normal: [0.0, 1.0, 0.0].into() }) as Box<dyn Solid>,
-        [0.5, 0.5, 0.5]
+        [ground_albedo, ground_albedo, ground_albedo]
     );
 
     let scene = vec![ground, cube];
