@@ -165,6 +165,91 @@ impl Solid for Cylinder {
     }
 }
 
+/// Finite right circular cone standing on its base, apex up, aligned along
+/// +Y. The base is a disk of `base_radius` at `base.y`; the apex is a single
+/// point at `base.y + height`.
+pub struct Cone {
+    pub base: Vec3A,
+    pub base_radius: f32,
+    pub height: f32
+}
+
+impl Cone {
+    /// Returns the nearest positive hit as (distance, unit normal).
+    ///
+    /// The side is the quadric x^2+z^2 = k^2*(h-y)^2 (in coordinates local to
+    /// `base`), where k = base_radius/height is the slope: radius shrinks
+    /// linearly from base_radius at y=0 to 0 at the apex y=height. This is a
+    /// double-napped cone; restricting hits to local y in [0, height] keeps
+    /// only the physical nappe.
+    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32,Vec3A)> {
+        let eps = 1e-6;
+        let h = self.height;
+        let k = self.base_radius / h;
+
+        let dx = o.x - self.base.x;
+        let dy = o.y - self.base.y;
+        let dz = o.z - self.base.z;
+
+        let mut best_t = f32::MAX;
+        let mut best_n = Vec3A::ZERO;
+        let mut hit = false;
+
+        // side: quadric surface, clamped to local y in [0, h]
+        let hb = h - dy; // h - (local y at the ray origin)
+        let a = dir.x * dir.x + dir.z * dir.z - k * k * dir.y * dir.y;
+        if a.abs() > eps {
+            let b = 2.0 * (dx * dir.x + dz * dir.z + k * k * hb * dir.y);
+            let c = dx * dx + dz * dz - k * k * hb * hb;
+            let disc = b * b - 4.0 * a * c;
+            if disc >= 0.0 {
+                let sq = disc.sqrt();
+                for t in [(-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a)] {
+                    if t > eps && t < best_t {
+                        let y_local = dy + t * dir.y;
+                        if (0.0..=h).contains(&y_local) {
+                            let px = dx + t * dir.x;
+                            let pz = dz + t * dir.z;
+                            // gradient of the implicit surface, pointing
+                            // outward: (x, k^2*(h-y), z), unnormalized
+                            let n = Vec3A::new(px, k * k * (h - y_local), pz).normalize();
+                            best_t = t;
+                            best_n = n;
+                            hit = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // base cap: disk at local y=0
+        if dir.y.abs() > eps {
+            let t = -dy / dir.y;
+            if t > eps && t < best_t {
+                let px = dx + t * dir.x;
+                let pz = dz + t * dir.z;
+                if px * px + pz * pz <= self.base_radius * self.base_radius {
+                    best_t = t;
+                    best_n = Vec3A::new(0.0, -1.0, 0.0);
+                    hit = true;
+                }
+            }
+        }
+
+        if hit { Some((best_t, best_n)) } else { None }
+    }
+}
+
+impl Solid for Cone {
+    fn ray_intersect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<f32> {
+        self.intersect(ray_origin, ray_dir).map(|(t, _)| t)
+    }
+
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)> {
+        self.intersect(ray_origin, ray_dir)
+    }
+}
+
 /// Axis-aligned cube, colored like a Rubik's cube: each of the 6 faces gets a
 /// fixed color (white/yellow/red/orange/blue/green) regardless of the
 /// `Scene`-assigned `base_color`, which is ignored.
@@ -284,6 +369,43 @@ mod tests {
         // ray stays outside the radius for all t
         assert!(unit()
             .intersect([5.0, 1.0, 5.0].into(), [0.0, 0.0, -1.0].into())
+            .is_none());
+    }
+
+    // unit cone: base at origin, base_radius 1, height 1 (45-degree slope)
+    fn unit_cone() -> Cone {
+        Cone { base: Vec3A::ZERO, base_radius: 1.0, height: 1.0 }
+    }
+
+    #[test]
+    fn cone_hits_base_from_below() {
+        // straight up from underneath hits the flat base disk, not the side
+        let (t, n) = unit_cone()
+            .intersect([0.0, -5.0, 0.0].into(), [0.0, 1.0, 0.0].into())
+            .expect("expected a base hit");
+        assert!(approx(t, 5.0), "t = {t}");
+        assert!(approx(n.x, 0.0) && approx(n.y, -1.0) && approx(n.z, 0.0), "n = {n:?}");
+    }
+
+    #[test]
+    fn cone_hits_side() {
+        // horizontal ray at half-height (y=0.5) hits the 45-degree side wall,
+        // where the cone's radius has shrunk to 0.5
+        let (t, n) = unit_cone()
+            .intersect([5.0, 0.5, 0.0].into(), [-1.0, 0.0, 0.0].into())
+            .expect("expected a side hit");
+        assert!(approx(t, 4.5), "t = {t}"); // hits at x=0.5, started at x=5
+        // 45-degree cone: outward normal also tilts 45 degrees (up-and-out)
+        assert!(approx(n.x, (0.5f32).sqrt()) && approx(n.z, 0.0), "n = {n:?}");
+        assert!(n.y > 0.0, "normal should point outward and upward, got {n:?}");
+        assert!(approx(n.length(), 1.0), "normal should be unit, got {}", n.length());
+    }
+
+    #[test]
+    fn cone_misses() {
+        // ray passes well outside the cone
+        assert!(unit_cone()
+            .intersect([5.0, 5.0, 5.0].into(), [0.0, 0.0, -1.0].into())
             .is_none());
     }
 

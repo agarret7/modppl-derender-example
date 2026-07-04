@@ -1,13 +1,3 @@
-[package]
-name = "modppl-derender"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-modppl = "0.3.0"
-float_extras = "0.1.6"
-glam = "0.28.0"
-rayon = "1.10.0"
-realsense-rust = "1.3.0"
-anyhow = "1.0.86"
-minifb = "0.28.0"
+[workspace]
+members = ["derender", "pose-net"]
+resolver = "2"

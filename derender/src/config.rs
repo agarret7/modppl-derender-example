@@ -54,3 +54,19 @@ pub fn FAR() -> f32 {
         env::var("FAR_M").ok().and_then(|s| s.parse().ok()).unwrap_or(7.5)
     })
 }
+
+/// Sets the canonical `cube_rgbd_model` pipeline environment (RES=128,
+/// FOVY_RAD=0.74 ≈ the D435 color stream's vertical FOV, NEAR_M=0.01,
+/// FAR_M=1.0) as *defaults*: explicitly-set env vars still win. Call this at
+/// the top of any binary that only ever uses the cube model (dataset gen,
+/// CNN train/validate, live demos), before anything reads the config -- the
+/// CNN bakes FOV and the depth encoding into its weights, so these values
+/// must agree across dataset generation, training, and inference, and
+/// requiring four env vars on every command is how mismatches happen.
+pub fn apply_cube_pipeline_defaults() {
+    for (key, val) in [("RES", "128"), ("FOVY_RAD", "0.74"), ("NEAR_M", "0.01"), ("FAR_M", "1.0")] {
+        if env::var(key).is_err() {
+            env::set_var(key, val);
+        }
+    }
+}

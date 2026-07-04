@@ -36,6 +36,37 @@ fn test_render_rubiks_cube() {
     save_colors("./out/rubiks_cube.bmp", &pixels);
 }
 
+/// quick visual sanity check (no inference, no noise) that the new `Cone`
+/// primitive actually looks like a cone (tapered silhouette, not a second
+/// sphere) sitting next to a `Sphere` on the table.
+#[test]
+fn test_render_cone_sphere() {
+    create_dir_all("out").expect("error creating 'out' dir");
+
+    let x = Affine3A::from_rotation_translation(
+        glam::Quat::from_euler(glam::EulerRot::XYZ, -0.3, 0.0, 0.0),
+        [0.0, 0.9, 1.2].into()
+    );
+    let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
+
+    let table = (
+        Box::new(Plane { origin: Vec3A::ZERO, normal: [0.0, 1.0, 0.0].into() }) as Box<dyn Solid>,
+        [0.6, 0.6, 0.6]
+    );
+    let cone = (
+        Box::new(Cone { base: [-0.35, 0.0, -0.8].into(), base_radius: 0.3, height: 0.6 }) as Box<dyn Solid>,
+        [0.2, 0.5, 0.9]
+    );
+    let sphere = (
+        Box::new(Sphere { center: [0.35, 0.25, -0.8].into(), radius: 0.25 }) as Box<dyn Solid>,
+        [0.9, 0.3, 0.3]
+    );
+
+    let mut pixels = vec![[0.0; 3]; AREA()];
+    raytrace_colors(x, proj, &vec![table, cone, sphere], [0.9, 0.9, 0.9], &mut pixels);
+    save_colors("./out/cone_sphere_still.bmp", &pixels);
+}
+
 #[test]
 fn test_derender_ground_depth() {
     create_dir_all("out").expect("error creating 'out' dir");
@@ -181,23 +212,106 @@ fn test_derender_mug() {
     save_colors2_video("./out/mug.mp4", &observations, &renders, 20);
 }
 
-// fixed observation noise, no annealing: same reasoning as the mug model
-// (single object, unimodal posterior).
-const RUBIKS_NOISE: f32 = 0.05;
+// fixed noise: with two objects there's now real potential for occlusion-driven
+// multimodality (see cone_sphere_model's doc comment), unlike the single-object
+// models above -- worth revisiting with annealing if/when that shows up.
+const CONE_SPHERE_NOISE: f32 = 0.05;
 
 #[test]
-fn test_derender_rubiks() {
+fn test_derender_cone_sphere() {
     create_dir_all("out").expect("error creating 'out' dir");
 
-    // orbital camera always points at the cube, so no constraints needed to keep
-    // it in frame -- sample everything from the prior.
-    let trace = rubiks_model.generate(RUBIKS_NOISE, DynTrie::new()).0;
+    // simulate constraints (fix the camera yaw so both objects stay in frame)
+    let mut synth_constraints = DynTrie::new();
+    synth_constraints.observe("cam_yaw", Arc::new(0.0));
+    let trace = cone_sphere_model.generate(CONE_SPHERE_NOISE, synth_constraints).0;
 
     // condition on the rendered observation
     let mut constraints = DynTrie::new();
     let observation = trace.data.read::<Colors>("observation").clone();
     constraints.observe("observation", Arc::new(observation.clone()));
-    let trace = rubiks_model.generate(RUBIKS_NOISE, constraints).0;
+    let trace = cone_sphere_model.generate(CONE_SPHERE_NOISE, constraints).0;
+
+    let mut cam_mask = AddrMap::new();
+    cam_mask.visit("cam_y");
+    cam_mask.visit("cam_yaw");
+
+    let mut env_mask = AddrMap::new();
+    env_mask.visit("table_c0");
+    env_mask.visit("table_c1");
+    env_mask.visit("table_c2");
+    env_mask.visit("ambient_brightness");
+
+    let mut cone_mask = AddrMap::new();
+    cone_mask.visit("cone_u");
+    cone_mask.visit("cone_v");
+    cone_mask.visit("cone_height");
+    cone_mask.visit("cone_radius");
+
+    let mut cone_color_mask = AddrMap::new();
+    cone_color_mask.visit("cone_c0");
+    cone_color_mask.visit("cone_c1");
+    cone_color_mask.visit("cone_c2");
+
+    let mut sphere_mask = AddrMap::new();
+    sphere_mask.visit("sphere_u");
+    sphere_mask.visit("sphere_v");
+    sphere_mask.visit("sphere_radius");
+
+    let mut sphere_color_mask = AddrMap::new();
+    sphere_color_mask.visit("sphere_c0");
+    sphere_color_mask.visit("sphere_c1");
+    sphere_color_mask.visit("sphere_c2");
+
+    const NUM_ITERS: usize = 250;
+    let start = std::time::Instant::now();
+    let renders: Vec<Colors> = Kernel::new(&cone_sphere_model, trace)
+        .regen_mh(&cam_mask)
+        .regen_mh(&env_mask)
+        .regen_mh(&cone_mask)
+        .mh(&noise_drift, (vec!["cone_u", "cone_v", "cone_height", "cone_radius"], 0.1))
+        .regen_mh(&cone_color_mask)
+        .regen_mh(&sphere_mask)
+        .mh(&noise_drift, (vec!["sphere_u", "sphere_v", "sphere_radius"], 0.1))
+        .regen_mh(&sphere_color_mask)
+        .take(NUM_ITERS)
+        .enumerate()
+        .inspect(|(i, _)| println!(
+            "iter {}/{NUM_ITERS} ({:.2?} elapsed, {:.3?}/iter)",
+            i + 1, start.elapsed(), start.elapsed() / (*i as u32 + 1)
+        ))
+        .map(|(_, t)| t.retv.clone().unwrap())
+        .collect();
+
+    let observations = vec![observation; NUM_ITERS];
+    save_colors2_video("./out/cone_sphere.mp4", &observations, &renders, 20);
+}
+
+// fixed observation noise, no annealing: same reasoning as the mug model
+// (single object, unimodal posterior).
+const RUBIKS_NOISE: (f32, f32) = (0.05, 0.05);
+
+/// the one cube model, end-to-end: same `cube_rgbd_model` (real-world scale,
+/// depth+color observations) as the live RealSense demos and the CNN training
+/// data -- here with a synthetic observation and the path-traced renderer for
+/// the gallery video. Set `path_trace=false` to test the flat variant.
+#[test]
+fn test_derender_rubiks() {
+    create_dir_all("out").expect("error creating 'out' dir");
+    let (dn, cn) = RUBIKS_NOISE;
+    let path_trace = true;
+
+    // orbital camera always points at the cube, so no constraints needed to keep
+    // it in frame -- sample everything from the prior.
+    let trace = cube_rgbd_model.generate((dn, cn, path_trace), DynTrie::new()).0;
+
+    // condition on the rendered observation (both channels)
+    let mut constraints = DynTrie::new();
+    let depth_observation = trace.data.read::<Depths>("depth_observation").clone();
+    let color_observation = trace.data.read::<Colors>("color_observation").clone();
+    constraints.observe("depth_observation", Arc::new(depth_observation));
+    constraints.observe("color_observation", Arc::new(color_observation.clone()));
+    let trace = cube_rgbd_model.generate((dn, cn, path_trace), constraints).0;
 
     let mut orbit_azimuth_mask = AddrMap::new();
     orbit_azimuth_mask.visit("orbit_azimuth");
@@ -210,36 +324,37 @@ fn test_derender_rubiks() {
     lookat_jitter_mask.visit("lookat_yaw_jitter");
     lookat_jitter_mask.visit("lookat_pitch_jitter");
 
-    let mut env_mask = AddrMap::new();
-    env_mask.visit("table_c0");
-    env_mask.visit("table_c1");
-    env_mask.visit("table_c2");
-    env_mask.visit("ambient_brightness");
+    let mut ground_mask = AddrMap::new();
+    ground_mask.visit("ground_c0");
+    ground_mask.visit("ground_c1");
+    ground_mask.visit("ground_c2");
+    ground_mask.visit("illum_c0");
+    ground_mask.visit("illum_c1");
+    ground_mask.visit("illum_c2");
 
     let mut cube_mask = AddrMap::new();
     cube_mask.visit("cube_u");
     cube_mask.visit("cube_v");
-    cube_mask.visit("cube_size");
 
     const NUM_ITERS: usize = 250;
     let start = std::time::Instant::now();
-    let renders: Vec<Colors> = Kernel::new(&rubiks_model, trace)
+    let renders: Vec<Colors> = Kernel::new(&cube_rgbd_model, trace)
         .regen_mh(&orbit_azimuth_mask)
         .regen_mh(&orbit_elev_radius_mask)
         .regen_mh(&lookat_jitter_mask)
-        .regen_mh(&env_mask)
+        .regen_mh(&ground_mask)
         .regen_mh(&cube_mask)
-        .mh(&noise_drift, (vec!["cube_u", "cube_v", "cube_size"], 0.1))
+        .mh(&rgbd_drift, (vec!["cube_u", "cube_v"], 0.05))
         .take(NUM_ITERS)
         .enumerate()
         .inspect(|(i, _)| println!(
             "iter {}/{NUM_ITERS} ({:.2?} elapsed, {:.3?}/iter)",
             i + 1, start.elapsed(), start.elapsed() / (*i as u32 + 1)
         ))
-        .map(|(_, t)| t.retv.clone().unwrap())
+        .map(|(_, t)| t.retv.clone().unwrap().1)
         .collect();
 
-    let observations = vec![observation; NUM_ITERS];
+    let observations = vec![color_observation; NUM_ITERS];
     save_colors2_video("./out/rubiks.mp4", &observations, &renders, 20);
 }
 

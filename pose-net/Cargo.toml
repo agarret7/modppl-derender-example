@@ -1,0 +1,39 @@
+[package]
+name = "pose-net"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+cuda = ["candle-core/cuda"]
+
+[dependencies]
+# note: the "cudnn" feature was tried and measured *slower* than candle's
+# plain CUDA convs on this stack (RTX 3070 Ti laptop, candle 0.8) -- don't
+# re-enable without re-measuring.
+candle-core = "0.8"
+candle-nn = "0.8"
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+modppl = { version = "0.3.1", path = "/home/austin/src/ppl/modppl/modppl" }
+modppl-derender = { path = "../derender" }
+minifb = "0.28.0"
+
+[[bin]]
+name = "train"
+path = "src/train.rs"
+
+[[bin]]
+name = "infer"
+path = "src/infer.rs"
+
+[[bin]]
+name = "live_cnn"
+path = "src/bin/live_cnn.rs"
+
+[[bin]]
+name = "synth_cnn"
+path = "src/bin/synth_cnn.rs"
+
+[[bin]]
+name = "graphviz"
+path = "src/bin/graphviz.rs"

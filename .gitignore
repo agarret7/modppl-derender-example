@@ -13,6 +13,19 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
+# generated training data / weights (regenerate via gen_dataset / train)
+out/dataset/
+*.safetensors
+
+# test-run output: `cargo test -p modppl-derender` runs with the crate dir as
+# cwd, so its "./out/..." paths land here, separate from the tracked
+# top-level out/ gallery assets
+derender/out/
+
+# ad hoc live-demo snapshots and stray backups
+out/snapshot_*.bmp
+out.bak/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

@@ -57,8 +57,9 @@ pub fn depths_from_frame(frame: &DepthFrame) -> Depths {
             let d = frame.distance(cam_x, cam_y).unwrap_or(0.0);
             out[y*W() + x] = if d <= 0.0 {
                 f32::NAN
-            } else if NEAR() <= d && d <= FAR() {
-                1.0 - (d - NEAR()) / (FAR() - NEAR())
+            } else if d <= FAR() {
+                // saturates at 1.0 below NEAR, matching the renderer's clamp
+                (1.0 - (d - NEAR()) / (FAR() - NEAR())).clamp(0.0, 1.0)
             } else {
                 0.0
             };
@@ -114,8 +115,9 @@ pub fn rgbd_from_frames(depth: &DepthFrame, color: &ColorFrame) -> (Depths, Colo
             let d = depth.distance(cam_x, cam_y).unwrap_or(0.0);
             depths[y*W() + x] = if d <= 0.0 {
                 f32::NAN
-            } else if NEAR() <= d && d <= FAR() {
-                1.0 - (d - NEAR()) / (FAR() - NEAR())
+            } else if d <= FAR() {
+                // saturates at 1.0 below NEAR, matching the renderer's clamp
+                (1.0 - (d - NEAR()) / (FAR() - NEAR())).clamp(0.0, 1.0)
             } else {
                 0.0
             };

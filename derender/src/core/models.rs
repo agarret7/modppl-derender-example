@@ -292,28 +292,18 @@ pub fn mug_model(noise: f32) -> Colors {
 });
 
 dyngen!(
-pub fn rubiks_model(noise: f32) -> Colors {
-    // cube: unknown position and size, resting on the table.
-    // Color is fixed per-face by `Cube::color_at` -- no color latents.
-    let u = (uniform(-1.0, 1.0) %= "cube_u") as f32;
-    let v = (uniform(-1.0, 0.0) %= "cube_v") as f32;
-    let half_extent = (uniform(0.2, 0.4) %= "cube_size") as f32;
-    let cube = (
-        Box::new(Cube { center: [u, half_extent, v].into(), half_extent }) as Box<dyn Solid>,
-        [0.0, 0.0, 0.0] // ignored: Cube::color_at overrides per-face
-    );
-
-    // orbital camera orbiting around the cube center -- the same parameterization
-    // as cube_rgbd_model, so the synthetic and real-world models share structure.
-    let orbit_azimuth        = (uniform(0.0, 2.0 * PI as f64) %= "orbit_azimuth") as f32;
-    let orbit_sin_elevation  = (uniform(0.0, 1.0) %= "orbit_sin_elevation") as f32;
-    let orbit_radius         = (uniform(1.0, 3.0) %= "orbit_radius") as f32;
-    let lookat_yaw_jitter    = (normal(0.0, 0.05) %= "lookat_yaw_jitter") as f32;
-    let lookat_pitch_jitter  = (normal(0.0, 0.05) %= "lookat_pitch_jitter") as f32;
-    let x = orbit_camera(
-        orbit_azimuth, orbit_sin_elevation, orbit_radius,
-        [u, half_extent, v].into(),
-        lookat_yaw_jitter, lookat_pitch_jitter,
+/// two independent objects on a shared table: a cone and a sphere, each with
+/// its own position, size, and color. Unlike the single-object models above,
+/// inference here has to disentangle which pixels belong to which object --
+/// the first step toward multi-object scenes with occlusion/multimodality.
+pub fn cone_sphere_model(noise: f32) -> Colors {
+    // camera pose
+    let cam_y = uniform(0.1, 0.75) %= "cam_y";
+    let cam_yaw = normal(0.0, PI as f64/8.0) %= "cam_yaw";
+    let cam_roll = normal(0.0, PI as f64/8.0) %= "cam_roll";
+    let x = Affine3A::from_rotation_translation(
+        Quat::from_euler(EulerRot::XYZ, cam_yaw as f32, 0.0, cam_roll as f32),
+        [0.0, cam_y as f32, 1.2].into()
     );
 
     // background
@@ -330,58 +320,42 @@ pub fn rubiks_model(noise: f32) -> Colors {
         table_c
     );
 
-    // render
+    // cone: resting on the table, apex up, with unknown position, size, and color
+    let cone_u = (uniform(-1.0, 1.0) %= "cone_u") as f32;
+    let cone_v = (uniform(-1.0, 0.0) %= "cone_v") as f32;
+    let cone_height = (uniform(0.3, 0.8) %= "cone_height") as f32;
+    let cone_radius = (uniform(0.15, 0.4) %= "cone_radius") as f32;
+    let mut cone_c = [0.0; 3];
+    cone_c[0] = (uniform(0.25, 1.0) %= "cone_c0") as f32;
+    cone_c[1] = (uniform(0.25, 1.0) %= "cone_c1") as f32;
+    cone_c[2] = (uniform(0.25, 1.0) %= "cone_c2") as f32;
+    let cone = (
+        Box::new(Cone { base: [cone_u, 0.0, cone_v].into(), base_radius: cone_radius, height: cone_height }) as Box<dyn Solid>,
+        cone_c
+    );
+
+    // sphere: resting on the table, with unknown position, size, and color
+    let sphere_u = (uniform(-1.0, 1.0) %= "sphere_u") as f32;
+    let sphere_v = (uniform(-1.0, 0.0) %= "sphere_v") as f32;
+    let sphere_radius = (uniform(0.15, 0.35) %= "sphere_radius") as f32;
+    let mut sphere_c = [0.0; 3];
+    sphere_c[0] = (uniform(0.25, 1.0) %= "sphere_c0") as f32;
+    sphere_c[1] = (uniform(0.25, 1.0) %= "sphere_c1") as f32;
+    sphere_c[2] = (uniform(0.25, 1.0) %= "sphere_c2") as f32;
+    let sphere = (
+        Box::new(Sphere { center: [sphere_u, sphere_radius, sphere_v].into(), radius: sphere_radius }) as Box<dyn Solid>,
+        sphere_c
+    );
+
+    // render: full path tracer -- both objects are plain-colored (no fixed
+    // per-face scheme to preserve, unlike the Rubik's cube), so realistic
+    // diffuse shading and shadows only help sim-to-real color matching here.
     let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
     let mut pixels = vec![[0.0; 3]; AREA()];
-    raytrace_colors(x, proj, &vec![table, cube], background_c, &mut pixels);
+    raytrace_colors(x, proj, &vec![table, cone, sphere], background_c, &mut pixels);
     noisy_colors(pixels.clone(), noise) %= "observation";
 
     pixels
-});
-
-dyngen!(
-/// depth-only cube model, for derendering a real RealSense depth stream: a cube
-/// resting on the ground plane with unknown position/size, scored against a
-/// depth observation rather than color (no lighting/material sim-to-real gap).
-pub fn cube_depth_model(noise: f32) -> Depths {
-    // camera pose
-    let cam_y = uniform(0.5, 2.0) %= "cam_y";
-    let cam_yaw = normal(0.0, PI as f64/8.0) %= "cam_yaw";
-    let x = Affine3A::from_rotation_translation(
-        Quat::from_euler(EulerRot::XYZ, cam_yaw as f32, 0.0, 0.0),
-        [0.0, cam_y as f32, 1.2].into()
-    );
-
-    // ground
-    let ground = (
-        Box::new(Plane { origin: Vec3A::ZERO, normal: [0.0, 1.0, 0.0].into() }) as Box<dyn Solid>,
-        [0.0, 0.0, 0.0]
-    );
-
-    // cube: unknown position and size, resting on the ground
-    let u = (uniform(-1.0, 1.0) %= "cube_u") as f32;
-    let v = (uniform(-1.0, 0.0) %= "cube_v") as f32;
-    let half_extent = (uniform(0.05, 0.5) %= "cube_size") as f32;
-    let cube = (
-        Box::new(Cube { center: [u, half_extent, v].into(), half_extent }) as Box<dyn Solid>,
-        [0.0, 0.0, 0.0] // unused: depth rendering ignores color
-    );
-
-    // render
-    let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32/H() as f32, NEAR(), FAR());
-    let mut pixels = vec![0.0; AREA()];
-    raytrace_depths(x, proj, &vec![ground, cube], &mut pixels);
-    noisy_depths(pixels.clone(), noise) %= "observation";
-
-    pixels
-});
-
-dyngen!(
-pub fn depth_drift(trace: Weak<DynTrace<f32,Depths>>, mask: Vec<&str>, stdev: f64) {
-    let trace = trace.upgrade().unwrap();
-    for addr in mask.iter() {
-        normal(trace.data.read::<f64>(addr), stdev) %= addr;
-    }
 });
 
 /// builds a camera-to-world transform for a camera on a hemisphere around
@@ -429,15 +403,14 @@ dyngen!(
 /// data, including poses not actually pointed at the cube. Orbiting + look-at
 /// guarantees the cube stays in frame regardless of the (still uncertain)
 /// orbit position.
-pub fn cube_rgbd_model(noise: (f32,f32)) -> (Depths, Colors) {
-    let (depth_noise, color_noise) = noise;
+pub fn cube_rgbd_model(noise: (f32, f32, bool)) -> (Depths, Colors) {
+    let (depth_noise, color_noise, path_trace) = noise;
 
     // cube: unknown position, resting on the ground. Size is a known constant
     // (a real Rubik's cube is ~4.5cm wide), not inferred -- with a known size,
     // orbit_radius is the only free scale parameter, so depth alone identifies
     // it cleanly. Inferring both size and distance from a single small object
-    // is a classic scale/depth ambiguity (see cube_depth_model/cube_size above
-    // for the latent version).
+    // is a classic scale/depth ambiguity.
     const CUBE_HALF_EXTENT: f32 = 0.0225;
 
     let u = (uniform(-1.0, 1.0) %= "cube_u") as f32;
@@ -448,14 +421,14 @@ pub fn cube_rgbd_model(noise: (f32,f32)) -> (Depths, Colors) {
     );
 
     // camera: uniform over the hemisphere above the cube (see orbit_camera's
-    // doc comment for why cos_elevation, not elevation, must be the latent),
+    // doc comment for why sin_elevation, not elevation, must be the latent),
     // looking at it plus a small angular jitter. radius range (0.25-0.7m)
     // brackets an actual handheld operating distance of ~0.3-0.6m. jitter
     // stdev (~3 deg) decouples camera orientation from the cube's exact
     // hypothesized position.
     let orbit_azimuth = (uniform(0.0, 2.0*PI as f64) %= "orbit_azimuth") as f32;
     let orbit_sin_elevation = (uniform(0.0, 1.0) %= "orbit_sin_elevation") as f32;
-    let orbit_radius = (uniform(0.25, 0.7) %= "orbit_radius") as f32;
+    let orbit_radius = (uniform(0.1, 0.25) %= "orbit_radius") as f32;
     let lookat_yaw_jitter = (normal(0.0, 0.05) %= "lookat_yaw_jitter") as f32;
     let lookat_pitch_jitter = (normal(0.0, 0.05) %= "lookat_pitch_jitter") as f32;
     let x = orbit_camera(
@@ -463,14 +436,12 @@ pub fn cube_rgbd_model(noise: (f32,f32)) -> (Depths, Colors) {
         lookat_yaw_jitter, lookat_pitch_jitter
     );
 
-    // ground: unknown albedo, since the ground plane is infinite and so
-    // dominates most of a close-up tabletop frame -- a fixed guess (e.g. mid
-    // gray) badly mismatches a real dark desk/table, swamping the color
-    // likelihood with avoidable error on every such pixel.
-    let ground_albedo = (uniform(0.0, 1.0) %= "ground_albedo") as f32;
+    let ground_c0 = (uniform(0.0, 1.0) %= "ground_c0") as f32;
+    let ground_c1 = (uniform(0.0, 1.0) %= "ground_c1") as f32;
+    let ground_c2 = (uniform(0.0, 1.0) %= "ground_c2") as f32;
     let ground = (
         Box::new(Plane { origin: Vec3A::ZERO, normal: [0.0, 1.0, 0.0].into() }) as Box<dyn Solid>,
-        [ground_albedo, ground_albedo, ground_albedo]
+        [ground_c0, ground_c1, ground_c2]
     );
 
     let scene = vec![ground, cube];
@@ -481,7 +452,26 @@ pub fn cube_rgbd_model(noise: (f32,f32)) -> (Depths, Colors) {
     // of camera rays that would do identical ray setup and nearest-hit search)
     let mut depths = vec![0.0; AREA()];
     let mut colors = vec![[0.0; 3]; AREA()];
-    raytrace_depths_and_flat_colors(x, proj, &scene, [0.7, 0.7, 0.7], &mut depths, &mut colors);
+    if path_trace {
+        raytrace_depths_and_path_colors(x, proj, &scene, [0.7, 0.7, 0.7], &mut depths, &mut colors);
+    } else {
+        raytrace_depths_and_flat_colors(x, proj, &scene, [0.7, 0.7, 0.7], &mut depths, &mut colors);
+    }
+
+    // illuminant/camera color cast: real captures are tinted by the light
+    // source and the camera's white balance, which the renderer knows nothing
+    // about. One multiplicative BGR latent absorbs most of that sim-to-real
+    // color error (a full spectral reflectance model would only fix
+    // second-order metamerism on top of this). Range keeps products in [0,1].
+    let illum_c0 = (uniform(0.5, 1.0) %= "illum_c0") as f32;
+    let illum_c1 = (uniform(0.5, 1.0) %= "illum_c1") as f32;
+    let illum_c2 = (uniform(0.5, 1.0) %= "illum_c2") as f32;
+    for c in colors.iter_mut() {
+        c[0] *= illum_c0;
+        c[1] *= illum_c1;
+        c[2] *= illum_c2;
+    }
+
     noisy_depths(depths.clone(), depth_noise) %= "depth_observation";
     noisy_colors(colors.clone(), color_noise) %= "color_observation";
 
