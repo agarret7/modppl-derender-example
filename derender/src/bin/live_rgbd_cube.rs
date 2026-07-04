@@ -9,7 +9,7 @@ use modppl_derender::{
 const DEFAULT_DEPTH_NOISE: f32 = 0.2;
 const DEFAULT_COLOR_NOISE: f32 = 0.32;
 const SWEEPS_PER_FRAME: usize = 5;
-const ORBIT_RESAMPLE_PROB: f64 = 0.1;
+const ORBIT_RESAMPLE_PROB: f32 = 0.1;
 
 fn parse_args() -> (f32, f32, bool) {
     let args: Vec<String> = std::env::args().collect();

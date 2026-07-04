@@ -26,8 +26,8 @@ use pose_net::PoseEstimator;
 
 const DEPTH_NOISE: f32 = 0.1;
 const COLOR_NOISE: f32 = 0.1;
-const MIN_AZIMUTH_CONFIDENCE: f64 = 0.25;
-const ORBIT_RESAMPLE_PROB: f64 = 0.1;
+const MIN_AZIMUTH_CONFIDENCE: f32 = 0.25;
+const ORBIT_RESAMPLE_PROB: f32 = 0.1;
 
 fn main() -> anyhow::Result<()> {
     modppl_derender::config::apply_cube_pipeline_defaults();
@@ -72,14 +72,14 @@ fn main() -> anyhow::Result<()> {
             let obs_depth = gt.data.read::<Depths>("depth_observation").clone();
             let obs_color = gt.data.read::<Colors>("color_observation").clone();
 
-            let gt_az   = gt.data.read::<f64>("orbit_azimuth");
-            let gt_elev = gt.data.read::<f64>("orbit_sin_elevation");
-            let gt_rad  = gt.data.read::<f64>("orbit_radius");
+            let gt_az   = gt.data.read::<f32>("orbit_azimuth");
+            let gt_elev = gt.data.read::<f32>("orbit_sin_elevation");
+            let gt_rad  = gt.data.read::<f32>("orbit_radius");
 
             let est = estimator.estimate(&obs_depth, &obs_color).expect("CNN forward failed");
             let az_err = {
                 let d = (est.azimuth - gt_az).abs();
-                d.min(std::f64::consts::TAU - d).to_degrees()
+                d.min(std::f32::consts::TAU - d).to_degrees()
             };
             println!("---");
             println!("truth: az {gt_az:.2}  sin_elev {gt_elev:.2}  radius {gt_rad:.2}");

@@ -73,8 +73,8 @@ fn test_derender_ground_depth() {
 
     // simulate constraints
     let mut synth_constraints = DynTrie::new();
-    synth_constraints.observe("cam_roll", Arc::new(0.));
-    synth_constraints.observe("cam_y", Arc::new(1.5));
+    synth_constraints.observe("cam_roll", Arc::new(0.0_f32));
+    synth_constraints.observe("cam_y", Arc::new(1.5_f32));
     let trace = grounded_depth_model.generate((), synth_constraints).0;
 
     // generate trace
@@ -106,9 +106,9 @@ fn test_derender_sphere_color() {
     for i in 1..=3 {
         // simulate constraints
         let mut synth_constraints = DynTrie::new();
-        synth_constraints.observe("cam_roll", Arc::new(0.));
-        synth_constraints.observe("ground_albedo", Arc::new(0.5));
-        synth_constraints.observe("ambient_brightness", Arc::new(0.95));
+        synth_constraints.observe("cam_roll", Arc::new(0.0_f32));
+        synth_constraints.observe("ground_albedo", Arc::new(0.5_f32));
+        synth_constraints.observe("ambient_brightness", Arc::new(0.95_f32));
         let trace = sphere_color_model.generate((), synth_constraints).0;
 
         // generate trace
@@ -161,7 +161,7 @@ fn test_derender_mug() {
 
     // simulate constraints (fix the camera yaw so the mug stays in frame)
     let mut synth_constraints = DynTrie::new();
-    synth_constraints.observe("cam_yaw", Arc::new(0.0));
+    synth_constraints.observe("cam_yaw", Arc::new(0.0_f32));
     let trace = mug_model.generate(MUG_NOISE, synth_constraints).0;
 
     // condition on the rendered observation
@@ -223,7 +223,7 @@ fn test_derender_cone_sphere() {
 
     // simulate constraints (fix the camera yaw so both objects stay in frame)
     let mut synth_constraints = DynTrie::new();
-    synth_constraints.observe("cam_yaw", Arc::new(0.0));
+    synth_constraints.observe("cam_yaw", Arc::new(0.0_f32));
     let trace = cone_sphere_model.generate(CONE_SPHERE_NOISE, synth_constraints).0;
 
     // condition on the rendered observation

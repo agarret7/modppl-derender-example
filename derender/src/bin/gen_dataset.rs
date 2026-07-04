@@ -71,11 +71,11 @@ fn main() {
         let trace = cube_rgbd_model.generate((0.0, 0.0, path_trace), DynTrie::new()).0;
 
         // read latents before consuming retv
-        let azimuth  = trace.data.read::<f64>("orbit_azimuth");
-        let sin_elev = trace.data.read::<f64>("orbit_sin_elevation");
-        let radius   = trace.data.read::<f64>("orbit_radius");
-        let cube_u   = trace.data.read::<f64>("cube_u");
-        let cube_v   = trace.data.read::<f64>("cube_v");
+        let azimuth  = trace.data.read::<f32>("orbit_azimuth");
+        let sin_elev = trace.data.read::<f32>("orbit_sin_elevation");
+        let radius   = trace.data.read::<f32>("orbit_radius");
+        let cube_u   = trace.data.read::<f32>("cube_u");
+        let cube_v   = trace.data.read::<f32>("cube_v");
 
         let (depths, colors) = trace.retv.unwrap();
 

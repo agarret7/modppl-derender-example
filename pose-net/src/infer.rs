@@ -40,8 +40,8 @@ fn main() -> Result<()> {
     let az = az_pred.squeeze(0)?.to_vec1::<f32>()?;
     let er = er_pred.squeeze(0)?.to_vec1::<f32>()?;
 
-    let azimuth = (az[0] as f64).atan2(az[1] as f64);
-    let confidence = ((az[0] * az[0] + az[1] * az[1]) as f64).sqrt();
+    let azimuth = az[0].atan2(az[1]);
+    let confidence = (az[0] * az[0] + az[1] * az[1]).sqrt();
     println!("azimuth:       {azimuth:.3} rad  (confidence {confidence:.2})");
     println!("sin_elevation: {:.3}", er[0]);
     println!("radius:        {:.3} m", er[1]);

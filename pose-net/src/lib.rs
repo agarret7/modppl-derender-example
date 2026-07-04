@@ -9,14 +9,14 @@ use model::PoseNet;
 
 pub struct PoseEstimate {
     /// [0, 2π), matching the model's orbit_azimuth convention
-    pub azimuth: f64,
+    pub azimuth: f32,
     /// norm of the (sin, cos) head output: ~1 on confident views, shrinks
     /// toward 0 on ambiguous ones (e.g. looking straight down at the white
     /// face) -- MSE training hedges multimodal views toward the circle
     /// center, so the norm is a free ambiguity signal.
-    pub azimuth_confidence: f64,
-    pub sin_elevation: f64,
-    pub radius: f64,
+    pub azimuth_confidence: f32,
+    pub sin_elevation: f32,
+    pub radius: f32,
 }
 
 /// Loads a trained PoseNet and runs single-frame pose estimation, in the
@@ -63,10 +63,10 @@ impl PoseEstimator {
         let er = er.squeeze(0)?.to_vec1::<f32>()?;
 
         Ok(PoseEstimate {
-            azimuth: (az[0] as f64).atan2(az[1] as f64).rem_euclid(std::f64::consts::TAU),
-            azimuth_confidence: ((az[0] * az[0] + az[1] * az[1]) as f64).sqrt(),
-            sin_elevation: er[0] as f64,
-            radius: er[1] as f64,
+            azimuth: az[0].atan2(az[1]).rem_euclid(std::f32::consts::TAU),
+            azimuth_confidence: (az[0] * az[0] + az[1] * az[1]).sqrt(),
+            sin_elevation: er[0],
+            radius: er[1],
         })
     }
 }

@@ -12,13 +12,13 @@ struct UniformS2 { }
 const uniform_s2: UniformS2 = UniformS2 { };
 
 impl Distribution<Vec3,()> for UniformS2 {
-    fn logpdf(&self, _: &Vec3, _: ()) -> f64 {
+    fn logpdf(&self, _: &Vec3, _: ()) -> f32 {
         panic!("not implemented!");
     }
-    
+
     fn random(&self, rng: &mut ThreadRng, _: ()) -> Vec3 {
-        let z = 2.0 * u01(rng) as f32 - 1.0;
-        let theta = 2.0 * PI * u01(rng) as f32;
+        let z = 2.0 * u01(rng) - 1.0;
+        let theta = 2.0 * PI * u01(rng);
         let r = (1.0 - z * z).sqrt();
         [r * theta.cos(), r * theta.sin(), z]
     }

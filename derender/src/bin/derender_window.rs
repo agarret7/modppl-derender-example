@@ -29,8 +29,8 @@ fn run_ground() {
         "derender: ground  |  obs : hyp  |  Space=pause  R=resample  S=save  ESC=quit",
         || {
             let mut synth = DynTrie::new();
-            synth.observe("cam_roll", Arc::new(0.0_f64));
-            synth.observe("cam_y",    Arc::new(1.5_f64));
+            synth.observe("cam_roll", Arc::new(0.0_f32));
+            synth.observe("cam_y",    Arc::new(1.5_f32));
             let gt          = grounded_depth_model.generate((), synth).0;
             let observation = gt.data.read::<Depths>("observation").clone();
 
@@ -69,9 +69,9 @@ fn run_sphere() {
         "derender: sphere  |  obs : hyp  |  Space=pause  R=resample  S=save  ESC=quit",
         || {
             let mut synth = DynTrie::new();
-            synth.observe("cam_roll",           Arc::new(0.0_f64));
-            synth.observe("ground_albedo",      Arc::new(0.5_f64));
-            synth.observe("ambient_brightness", Arc::new(0.95_f64));
+            synth.observe("cam_roll",           Arc::new(0.0_f32));
+            synth.observe("ground_albedo",      Arc::new(0.5_f32));
+            synth.observe("ambient_brightness", Arc::new(0.95_f32));
             let gt          = sphere_color_model.generate((), synth).0;
             let observation = gt.data.read::<Colors>("observation").clone();
 
@@ -121,7 +121,7 @@ fn run_mug() {
         "derender: mug  |  obs : hyp  |  Space=pause  R=resample  S=save  ESC=quit",
         || {
             let mut synth = DynTrie::new();
-            synth.observe("cam_yaw", Arc::new(0.0_f64));
+            synth.observe("cam_yaw", Arc::new(0.0_f32));
             let gt          = mug_model.generate(0.05_f32, synth).0;
             let observation = gt.data.read::<Colors>("observation").clone();
 
@@ -199,25 +199,25 @@ fn run_cone_sphere() {
             // dead-center in the frame; v is depth (more negative = farther
             // from the camera at z=1.2, i.e. farther back in the scene).
             let mut synth = DynTrie::new();
-            synth.observe("cam_yaw", Arc::new(0.0_f64));
-            synth.observe("cam_roll", Arc::new(0.0_f64));
-            synth.observe("cam_y", Arc::new(0.2_f64));
-            synth.observe("sphere_radius", Arc::new(0.15_f64));
-            synth.observe("cone_radius", Arc::new(0.225_f64)); // 1.5x the ball's radius
-            synth.observe("cone_height", Arc::new(0.75_f64));
-            synth.observe("sphere_u", Arc::new(0.0_f64));   // dead-center
-            synth.observe("sphere_v", Arc::new(-0.15_f64));
-            synth.observe("cone_u", Arc::new(-0.2_f64));    // a bit left of the sphere
-            synth.observe("cone_v", Arc::new(-0.3_f64));    // and a bit farther back
-            synth.observe("cone_c0", Arc::new(0.5_f64));  // B: darker purple
-            synth.observe("cone_c1", Arc::new(0.25_f64)); // G (at the prior's floor)
-            synth.observe("cone_c2", Arc::new(0.5_f64));  // R
-            synth.observe("sphere_c0", Arc::new(0.25_f64)); // B: red
-            synth.observe("sphere_c1", Arc::new(0.25_f64)); // G
-            synth.observe("sphere_c2", Arc::new(1.0_f64));  // R
-            synth.observe("table_c0", Arc::new(0.9_f64)); // whitish ground
-            synth.observe("table_c1", Arc::new(0.9_f64));
-            synth.observe("table_c2", Arc::new(0.9_f64));
+            synth.observe("cam_yaw", Arc::new(0.0_f32));
+            synth.observe("cam_roll", Arc::new(0.0_f32));
+            synth.observe("cam_y", Arc::new(0.2_f32));
+            synth.observe("sphere_radius", Arc::new(0.15_f32));
+            synth.observe("cone_radius", Arc::new(0.225_f32)); // 1.5x the ball's radius
+            synth.observe("cone_height", Arc::new(0.75_f32));
+            synth.observe("sphere_u", Arc::new(0.0_f32));   // dead-center
+            synth.observe("sphere_v", Arc::new(-0.15_f32));
+            synth.observe("cone_u", Arc::new(-0.2_f32));    // a bit left of the sphere
+            synth.observe("cone_v", Arc::new(-0.3_f32));    // and a bit farther back
+            synth.observe("cone_c0", Arc::new(0.5_f32));  // B: darker purple
+            synth.observe("cone_c1", Arc::new(0.25_f32)); // G (at the prior's floor)
+            synth.observe("cone_c2", Arc::new(0.5_f32));  // R
+            synth.observe("sphere_c0", Arc::new(0.25_f32)); // B: red
+            synth.observe("sphere_c1", Arc::new(0.25_f32)); // G
+            synth.observe("sphere_c2", Arc::new(1.0_f32));  // R
+            synth.observe("table_c0", Arc::new(0.9_f32)); // whitish ground
+            synth.observe("table_c1", Arc::new(0.9_f32));
+            synth.observe("table_c2", Arc::new(0.9_f32));
             let gt          = cone_sphere_model.generate(0.05_f32, synth).0;
             let observation = gt.data.read::<Colors>("observation").clone();
 
