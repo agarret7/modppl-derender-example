@@ -7,6 +7,28 @@ pose, object pose/size/color, and lighting) paired with a ray-traced renderer us
 observation likelihood. Inference is plain Metropolis-Hastings over the program's own random
 choices, with custom proposals where the default ones aren't enough.
 
+## Setup
+
+Install [Rust](https://rust-lang.org/tools/install) (stable) and Git, then:
+
+```sh
+git clone https://github.com/agarret7/modppl-derender
+cd modppl-derender
+
+cargo build --release --examples
+RES=128 cargo run --release --example sandbox -- ball
+```
+
+If a two-panel animation appears, you're ready. The live examples open a window
+(via [`minifb`](https://crates.io/crates/minifb)), which needs a C compiler and
+windowing headers already present on most systems. if the build fails looking
+for them:
+
+- **Linux**: `sudo apt install build-essential libxkbcommon-dev libwayland-dev`
+  (or your distro's equivalent; X11 or Wayland packages depending on your desktop)
+- **macOS**: `xcode-select --install`
+- **Windows**: MSVC toolchain installed alongside Rust covers it
+
 ## Gallery
 
 Each pair below is observation (left) vs. the inferred hypothesis converging onto it (right),
@@ -23,7 +45,7 @@ Each pair below is observation (left) vs. the inferred hypothesis converging ont
 
 | | |
 |---|---|
-| [![ball](out/thumbs/ball.png)](out/ball.mp4)<br>**Ball, from a real photo** — derendering an actual `.bmp` photograph, not a synthetic render | [![live rgbd](out/thumbs/live_rgbd.png)](out/thumbs/live_rgbd.png)<br>**Live RealSense demo** — real depth+color camera input (top) vs. the live-inferred cube hypothesis (bottom), via `live_rgbd_cube` |
+| [![ball](out/thumbs/ball.png)](out/ball.mp4)<br>**Ball, from a real photo** — derendering an actual `.bmp` photograph, not a synthetic render | [![live rgbd](out/thumbs/live_rgbd.png)](out/live_rgbd.mp4)<br>**Live RealSense demo** — real depth+color camera input (top) vs. the live-inferred cube hypothesis (bottom), via `live_rgbd_cube` |
 
 ## Models
 
@@ -42,18 +64,23 @@ Each pair below is observation (left) vs. the inferred hypothesis converging ont
   synthetic test, the interactive window, the live RealSense demo, and the pose-net
   training dataset.
 
-All live in [`derender/src/core/models.rs`](derender/src/core/models.rs), written with the
-`dyngen!` macro. Inference sweeps are built with the `Kernel` combinator
+Each lives in its own `examples/scenes/*.rs` file (`cube_rgbd_model` is the exception,
+importable from [`derender/src/core/cube_model.rs`](derender/src/core/cube_model.rs) since
+it has real cross-crate consumers), written with the `dyngen!` macro. Inference sweeps are
+built with the `InferenceKernel` combinator
 ([`derender/src/inference.rs`](derender/src/inference.rs)):
 
 ```rust
-let renders: Vec<Colors> = Kernel::new(&ball_model, trace)
-    .regen_mh(&cam_mask)
-    .regen_mh(&env_mask)
-    .mh(&gaussian_drift, (vec!["table_c0", "table_c1", "table_c2"], 0.1))
-    .regen_mh(&ball_mask)
-    .mh(&gaussian_drift, (vec!["ball_u", "ball_v", "ball_radius"], 0.1))
-    .regen_mh(&ball_color_mask)
+let kernel = InferenceKernel::new(&ball_model)
+    .regen_mh(&cam_pass)
+    .regen_mh(&env_pass)
+    .mh(&gaussian_drift, (table_color_pass.clone(), 0.1))
+    .regen_mh(&ball_pass)
+    .mh(&gaussian_drift, (ball_pass.clone(), 0.1))
+    .regen_mh(&ball_color_pass);
+
+let renders: Vec<Colors> = kernel
+    .iter(trace)
     .take(NUM_ITERS)
     .map(|t| t.retv.clone().unwrap())
     .collect();
@@ -61,32 +88,46 @@ let renders: Vec<Colors> = Kernel::new(&ball_model, trace)
 
 ## Tutorial
 
-A four-step hands-on sequence (SciComp-Rust 2026). Each file is **self-contained** —
-the model, the likelihoods, and the inference kernel are all defined in the example
-file itself, so edit priors and moves freely and rerun. Every file compiles and
-converges as shipped; `// EXERCISE:` comments mark specific edits whose effect is
-visible in the window.
+A five-step hands-on sequence (SciComp-Rust 2026 workshop). Each file is
+**self-contained** — the model, the likelihoods, and the inference kernel are all
+defined in the example file itself, so edit priors and moves freely and rerun. Every
+file compiles and converges as shipped; `// EXERCISE:` comments mark specific edits
+whose effect is visible in the window.
+
+**Setup:**
 
 ```sh
-cargo run --release --example tutorial_01_ground   # a scene is a probabilistic program
-cargo run --release --example tutorial_02_object   # add a cube; block moves vs. drift
-cargo run --release --example tutorial_03_color    # a second observation channel (RGB-D)
-cargo run --release --example sandbox              # the full cube pipeline, yours to break
+git clone <this repo>
+cd modppl-derender
+cargo build --release --examples
 ```
 
-1. **tutorial_01_ground** — infer camera height/roll from a depth image of a ground
-   plane. Likelihood = a `Distribution` impl, model = a `dyngen!` function, inference
-   = one `regen_mh` move.
-2. **tutorial_02_object** — a cube with unknown position/size. Custom drift proposal
-   (commented out — enable it and watch convergence improve).
-3. **tutorial_03_color** — the cube becomes a Rubik's cube; depth + color observed
-   jointly. Channel-ablation exercises.
-4. **sandbox** — the real-world cube pipeline (orbital camera, metric scale,
-   illuminant tint) with extension ideas, plus a commented RealSense swap: the same
-   model and kernel drive live camera frames by changing one harness call.
+**Run in order:**
 
-All windows share the harness keys: **Space** pause, **R** fresh scene, **S**
-snapshot, **ESC** quit.
+```sh
+cargo run --release --example tutorial_01_intro    # what is a probabilistic program?
+cargo run --release --example tutorial_02_ground   # a scene is a probabilistic program
+cargo run --release --example tutorial_03_object   # add a cube; block moves vs. drift
+cargo run --release --example tutorial_04_color    # a second observation channel (RGB-D)
+cargo run --release --example sandbox -- rubiks    # the full cube pipeline, yours to break
+```
+
+1. **tutorial_01_intro** — probabilistic programming in five minutes: write a model
+   with `dyngen!`, sample it, condition it on observed values, and watch MH inference
+   recover a hidden number.
+2. **tutorial_02_ground** — the leap to inverse graphics: put a ray tracer *inside* the model, so "explain this depth image" becomes ordinary Bayesian inference over camera height and roll. One `regen_mh` move is enough.
+3. **tutorial_03_object** — add a cube with unknown position and size, and observe inference tradeoffs: prior-resampling moves find the right region, a drift proposal (commented out — turn it on) refines it.
+4. **tutorial_04_color** — observe color alongside depth. One extra render call and one new `%=` sample line transform the generative function's observation from
+   `Depths ≅ Vec<f32>` to
+   `RGB-D ≅ (Depths, Colors)` where `Colors ≅ Vec<[f32; 3]>`.
+   Ablate either channel and see what each one does (and doesn't) constrain.
+5. **sandbox** — one entrypoint to every demo scene: `-- ground`, `-- sphere`, `-- ball`,
+   `-- mug`, `-- cone_sphere`, or `-- rubiks`. Each lives in its own file under
+   `examples/scenes/` — open it, edit the model or kernel, rerun. The `rubiks` scene
+   is the full real-world cube pipeline at metric scale, with extension ideas
+   throughout; if you have a RealSense camera, try real-time inference.
+
+All windows share a few controls: **Space** pause, **R** fresh scene, **S** snapshot, **ESC** quit.
 
 ## Running the tests
 
@@ -103,26 +144,12 @@ RES=128 cargo test --release --test derender test_derender_mug
 
 ## The cube pipeline environment
 
-Everything touching `cube_rgbd_model` — the rubiks test, `derender_window rubiks`, dataset
-generation, `synth_cnn`, and the live demos — must run in the **same** environment, because
-the CNN bakes the FOV and the depth encoding into its weights. The cube-only binaries
-(`gen_dataset`, `live_rgbd_cube`, `synth_cnn`, `live_cnn`) apply these defaults themselves
-(`config::apply_cube_pipeline_defaults`); env vars still override them. Multi-model
-commands (the rubiks test, `derender_window rubiks`) need them set explicitly:
-
-```sh
-RES=128 FOVY_RAD=0.74 NEAR_M=0.01 FAR_M=1.0
-```
-
-- `FOVY_RAD=0.74` — ≈42.5°, the D435 color stream's vertical FOV (the live loop calibrates
-  the exact value from the camera intrinsics at startup).
-- `NEAR_M=0.01` — below the closest ground pixel the orbital camera can ever see (~6cm at
-  grazing elevation), so no visible pixel ever hits the near plane.
-- `FAR_M=1.0` — keeps depth-likelihood contrast over the 0.25–0.7m working range instead of
-  squashing it into the top of a 7.5m window.
-
-A `FOVY_RAD`/`NEAR_M`/`FAR_M` mismatch between dataset generation and inference silently
-degrades the CNN — the values are recorded in the dataset's `meta.txt` for auditability.
+Everything touching `cube_rgbd_model` (the rubiks test and scene, dataset generation,
+`synth_cnn`, and the live demos) shares one metric-scale environment via
+`config::apply_cube_pipeline_defaults()` (`RES=128`, `FOVY_RAD=0.74`, `NEAR_M=0.01`,
+`FAR_M=1.0`). env vars still override it. A mismatch between dataset generation and
+inference silently degrades the CNN, since it bakes the FOV and depth encoding into its
+weights; see `config.rs` for what each value means and why.
 
 ## Live RealSense demo
 
@@ -149,8 +176,7 @@ PoseNet — see below.
 
 The generative model doubles as a training-data pipeline: `gen_dataset` samples poses and
 renders from `cube_rgbd_model`, `pose-net` trains a small CNN (Candle, CUDA) to regress the
-orbit pose, and the estimate drives an independence MH proposal (`pose_guide`) that the
-acceptance test keeps honest — zero real-world labels anywhere.
+orbit pose, and the estimate is called inside an MH proposal (`pose_guide`).
 
 ```sh
 # generate 50k synthetic training pairs (~13 GB)

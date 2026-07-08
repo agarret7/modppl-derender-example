@@ -20,13 +20,20 @@ impl Dataset {
     /// salvaging a partially-generated data.bin).
     pub fn load(dir: &str, device: &Device, take: Option<usize>) -> Result<Self> {
         // read meta
-        let meta = fs::read_to_string(format!("{dir}/meta.txt"))
-            .context("missing meta.txt")?;
-        let mut n = 0usize; let mut h = 64usize; let mut w = 64usize;
+        let meta = fs::read_to_string(format!("{dir}/meta.txt")).context("missing meta.txt")?;
+        let mut n = 0usize;
+        let mut h = 64usize;
+        let mut w = 64usize;
         for line in meta.lines() {
-            if let Some(v) = line.strip_prefix("n=")       { n = v.parse()?; }
-            if let Some(v) = line.strip_prefix("height=")  { h = v.parse()?; }
-            if let Some(v) = line.strip_prefix("width=")   { w = v.parse()?; }
+            if let Some(v) = line.strip_prefix("n=") {
+                n = v.parse()?;
+            }
+            if let Some(v) = line.strip_prefix("height=") {
+                h = v.parse()?;
+            }
+            if let Some(v) = line.strip_prefix("width=") {
+                w = v.parse()?;
+            }
         }
         let channels = 4usize;
 
@@ -49,9 +56,13 @@ impl Dataset {
         let mut remaining = n_floats * 4;
         while remaining > 0 {
             let take = chunk.len().min(remaining);
-            f.read_exact(&mut chunk[..take]).context("data.bin truncated")?;
-            floats.extend(chunk[..take].chunks_exact(4)
-                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+            f.read_exact(&mut chunk[..take])
+                .context("data.bin truncated")?;
+            floats.extend(
+                chunk[..take]
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
+            );
             remaining -= take;
         }
         let images = Tensor::from_vec(floats, (n, channels, h, w), device)?;
@@ -61,10 +72,13 @@ impl Dataset {
         let csv = fs::read_to_string(format!("{dir}/labels.csv")).context("missing labels.csv")?;
         let mut label_vec: Vec<f32> = Vec::with_capacity(n * 6);
         for line in csv.lines().skip(1).take(n) {
-            let cols: Vec<f64> = line.split(',')
+            let cols: Vec<f64> = line
+                .split(',')
                 .map(|s| s.trim().parse::<f64>().unwrap_or(0.0))
                 .collect();
-            if cols.len() < 5 { continue; }
+            if cols.len() < 5 {
+                continue;
+            }
             let (az, sin_elev, radius, u, v) = (cols[0], cols[1], cols[2], cols[3], cols[4]);
             // azimuth dropped: a symmetric cube looks identical from any azimuth,
             // so it's unlearnable and only adds noise to the loss
@@ -76,7 +90,13 @@ impl Dataset {
         }
         let labels = Tensor::from_vec(label_vec, (n, 4), device)?;
 
-        Ok(Self { images, labels, n, h, w })
+        Ok(Self {
+            images,
+            labels,
+            n,
+            h,
+            w,
+        })
     }
 
     /// Returns (images, labels) minibatch tensors: a single index_select

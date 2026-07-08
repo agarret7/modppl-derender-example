@@ -5,14 +5,14 @@
 //! and key bindings; the closure handles everything inference-specific.
 
 use anyhow::Result;
-use minifb::{Key, KeyRepeat, Scale, Window, WindowOptions};
+use minifb::{Key, KeyRepeat, Window, WindowOptions};
 use std::fs::create_dir_all;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{H, W};
 use crate::image::{Colors, Depths};
 use crate::realsense::*;
-use crate::sandbox::Panels;
+use crate::sandbox::{window_scale, Panels};
 use crate::serialization::save_snapshot;
 
 // ── main loop ────────────────────────────────────────────────────────────────
@@ -46,8 +46,12 @@ pub fn run_rgbd_loop(mut step: impl FnMut(Depths, Colors) -> (Depths, Colors)) -
 
     let mut window = Window::new(
         "live RGB-D derender  |  observed (top) : hypothesis (bottom)  |  S=snapshot  ESC=quit",
-        2 * W(), 2 * H(),
-        WindowOptions { scale: Scale::X4, ..WindowOptions::default() },
+        2 * W(),
+        2 * H(),
+        WindowOptions {
+            scale: window_scale(),
+            ..WindowOptions::default()
+        },
     )?;
     let mut buffer = vec![0u32; 2 * W() * 2 * H()];
 
@@ -58,20 +62,28 @@ pub fn run_rgbd_loop(mut step: impl FnMut(Depths, Colors) -> (Depths, Colors)) -
         let (obs_depth, obs_color) = obs;
         let (hyp_depth, hyp_color) = step(obs_depth.clone(), obs_color.clone());
 
-        Panels::Rgbd { obs: (obs_depth, obs_color), hyp: (hyp_depth, hyp_color) }
-            .render(&mut buffer);
+        Panels::Rgbd {
+            obs: (obs_depth, obs_color),
+            hyp: (hyp_depth, hyp_color),
+        }
+        .render(&mut buffer);
 
         window.update_with_buffer(&buffer, 2 * W(), 2 * H())?;
 
         if window.is_key_pressed(Key::S, KeyRepeat::No) {
             create_dir_all("out").expect("error creating 'out' dir");
-            let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             let path = format!("out/snapshot_{ts}.bmp");
             save_snapshot(&path, &buffer, 2 * W(), 2 * H());
             println!("saved {path}");
         }
 
-        if !window.is_open() || window.is_key_down(Key::Escape) { break; }
+        if !window.is_open() || window.is_key_down(Key::Escape) {
+            break;
+        }
 
         let (df, cf) = read_rgbd_frames(&mut pipeline, &mut align)?;
         obs = rgbd_from_frames(&df, &cf);

@@ -21,7 +21,7 @@ use crate::arch::{conv_arch, N_AZ_OUTPUTS, N_ER_OUTPUTS};
 /// hiding whether the hard one learns.
 pub struct PoseNet {
     convs: Vec<Conv2d>,
-    fc:      Linear,
+    fc: Linear,
     head_az: Linear, // (sin_az, cos_az)
     head_er: Linear, // (sin_elevation, radius)
 }
@@ -37,13 +37,23 @@ impl PoseNet {
 
         let mut convs = Vec::new();
         for layer in layers {
-            let cfg = Conv2dConfig { padding: 1, stride: layer.stride, ..Default::default() };
-            convs.push(conv2d(layer.cin, layer.cout, 3, cfg, vb.pp(format!("conv{}", layer.index)))?);
+            let cfg = Conv2dConfig {
+                padding: 1,
+                stride: layer.stride,
+                ..Default::default()
+            };
+            convs.push(conv2d(
+                layer.cin,
+                layer.cout,
+                3,
+                cfg,
+                vb.pp(format!("conv{}", layer.index)),
+            )?);
         }
 
         Ok(Self {
             convs,
-            fc:      linear(256 * final_cells, 256, vb.pp("fc"))?,
+            fc: linear(256 * final_cells, 256, vb.pp("fc"))?,
             head_az: linear(256, N_AZ_OUTPUTS, vb.pp("head_az"))?,
             head_er: linear(256, N_ER_OUTPUTS, vb.pp("head_er"))?,
         })

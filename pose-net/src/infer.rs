@@ -1,7 +1,7 @@
 use pose_net::model;
 
 use anyhow::Result;
-use candle_core::{Device, Tensor, DType};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use clap::Parser;
 use model::PoseNet;
@@ -24,14 +24,13 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let device = Device::new_cuda(0).unwrap_or(Device::Cpu);
 
-    let vb = unsafe {
-        VarBuilder::from_mmaped_safetensors(&[&args.weights], DType::F32, &device)?
-    };
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[&args.weights], DType::F32, &device)? };
     let model = PoseNet::new(vb, args.h, args.w)?;
 
     // load a single (4, H, W) image from a raw binary slice of data.bin
     let bytes = std::fs::read(&args.image)?;
-    let floats: Vec<f32> = bytes.chunks_exact(4)
+    let floats: Vec<f32> = bytes
+        .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect();
     let img = Tensor::from_vec(floats, (1, 4, args.h, args.w), &device)?;

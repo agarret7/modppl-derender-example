@@ -1,5 +1,4 @@
 use anyhow::{ensure, Result};
-use std::{collections::HashSet, time::Duration};
 use realsense_rust::{
     config::Config,
     context::Context,
@@ -8,8 +7,9 @@ use realsense_rust::{
     pipeline::{ActivePipeline, InactivePipeline},
     processing_blocks::align::Align,
 };
+use std::{collections::HashSet, time::Duration};
 
-use crate::config::{H, W, NEAR, FAR};
+use crate::config::{FAR, H, NEAR, W};
 use crate::image::{Colors, Depths};
 
 /// native D435 depth stream resolution; we downsample (with aspect "squash",
@@ -37,7 +37,10 @@ pub fn open_depth_pipeline() -> Result<ActivePipeline> {
 pub fn read_depth_frame(pipeline: &mut ActivePipeline) -> Result<DepthFrame> {
     let timeout = Duration::from_millis(5000);
     let frames = pipeline.wait(Some(timeout))?;
-    Ok(frames.frames_of_type::<DepthFrame>().pop().expect("no depth frame in frameset"))
+    Ok(frames
+        .frames_of_type::<DepthFrame>()
+        .pop()
+        .expect("no depth frame in frameset"))
 }
 
 /// converts a raw depth frame into the model's normalized `Depths` representation
@@ -49,13 +52,13 @@ pub fn read_depth_frame(pipeline: &mut ActivePipeline) -> Result<DepthFrame> {
 /// know," not "it's far away," and scoring it as background actively
 /// misinforms the likelihood. `NoisyDepths::logpdf` skips `NaN` pixels entirely.
 pub fn depths_from_frame(frame: &DepthFrame) -> Depths {
-    let mut out = vec![0.0; W()*H()];
+    let mut out = vec![0.0; W() * H()];
     for y in 0..H() {
         for x in 0..W() {
             let cam_x = x * CAM_W / W();
             let cam_y = y * CAM_H / H();
             let d = frame.distance(cam_x, cam_y).unwrap_or(0.0);
-            out[y*W() + x] = if d <= 0.0 {
+            out[y * W() + x] = if d <= 0.0 {
                 f32::NAN
             } else if d <= FAR() {
                 // saturates at 1.0 below NEAR, matching the renderer's clamp
@@ -84,20 +87,36 @@ pub fn open_rgbd_pipeline() -> Result<(ActivePipeline, Align)> {
         .enable_device_from_serial(devices[0].info(Rs2CameraInfo::SerialNumber).unwrap())?
         .disable_all_streams()?
         .enable_stream(Rs2StreamKind::Depth, None, CAM_W, CAM_H, Rs2Format::Z16, 30)?
-        .enable_stream(Rs2StreamKind::Color, None, CAM_W, CAM_H, Rs2Format::Rgb8, 30)?;
+        .enable_stream(
+            Rs2StreamKind::Color,
+            None,
+            CAM_W,
+            CAM_H,
+            Rs2Format::Rgb8,
+            30,
+        )?;
 
     let pipeline = pipeline.start(Some(config))?;
     let align = Align::new(Rs2StreamKind::Color, 8)?;
     Ok((pipeline, align))
 }
 
-pub fn read_rgbd_frames(pipeline: &mut ActivePipeline, align: &mut Align) -> Result<(DepthFrame, ColorFrame)> {
+pub fn read_rgbd_frames(
+    pipeline: &mut ActivePipeline,
+    align: &mut Align,
+) -> Result<(DepthFrame, ColorFrame)> {
     let timeout = Duration::from_millis(5000);
     let frames = pipeline.wait(Some(timeout))?;
     align.queue(frames)?;
     let aligned = align.wait(timeout)?;
-    let depth = aligned.frames_of_type::<DepthFrame>().pop().expect("no depth frame in aligned frameset");
-    let color = aligned.frames_of_type::<ColorFrame>().pop().expect("no color frame in aligned frameset");
+    let depth = aligned
+        .frames_of_type::<DepthFrame>()
+        .pop()
+        .expect("no depth frame in aligned frameset");
+    let color = aligned
+        .frames_of_type::<ColorFrame>()
+        .pop()
+        .expect("no color frame in aligned frameset");
     Ok((depth, color))
 }
 
@@ -105,15 +124,15 @@ pub fn read_rgbd_frames(pipeline: &mut ActivePipeline, align: &mut Align) -> Res
 /// representation. `Colors` is `[f32;3]` in BGR order (see image.rs), matching
 /// the BMP-native layout the rest of the renderer assumes.
 pub fn rgbd_from_frames(depth: &DepthFrame, color: &ColorFrame) -> (Depths, Colors) {
-    let mut depths = vec![0.0; W()*H()];
-    let mut colors = vec![[0.0; 3]; W()*H()];
+    let mut depths = vec![0.0; W() * H()];
+    let mut colors = vec![[0.0; 3]; W() * H()];
     for y in 0..H() {
         for x in 0..W() {
             let cam_x = x * CAM_W / W();
             let cam_y = y * CAM_H / H();
 
             let d = depth.distance(cam_x, cam_y).unwrap_or(0.0);
-            depths[y*W() + x] = if d <= 0.0 {
+            depths[y * W() + x] = if d <= 0.0 {
                 f32::NAN
             } else if d <= FAR() {
                 // saturates at 1.0 below NEAR, matching the renderer's clamp
@@ -123,7 +142,7 @@ pub fn rgbd_from_frames(depth: &DepthFrame, color: &ColorFrame) -> (Depths, Colo
             };
 
             if let Some(PixelKind::Bgr8 { r, g, b }) = color.get(cam_x, cam_y) {
-                colors[y*W() + x] = [*b as f32 / 255.0, *g as f32 / 255.0, *r as f32 / 255.0];
+                colors[y * W() + x] = [*b as f32 / 255.0, *g as f32 / 255.0, *r as f32 / 255.0];
             }
         }
     }

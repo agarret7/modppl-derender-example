@@ -1,6 +1,6 @@
 pub mod arch;
-pub mod model;
 pub mod dataset;
+pub mod model;
 
 use anyhow::Result;
 use candle_core::{DType, Device, Tensor};
@@ -34,7 +34,12 @@ impl PoseEstimator {
     pub fn load(weights: &str, h: usize, w: usize) -> Result<Self> {
         let device = Device::new_cuda(0).unwrap_or(Device::Cpu);
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights], DType::F32, &device)? };
-        Ok(Self { model: PoseNet::new(vb, h, w)?, device, h, w })
+        Ok(Self {
+            model: PoseNet::new(vb, h, w)?,
+            device,
+            h,
+            w,
+        })
     }
 
     /// `depths`: H*W normalized inverse-depth; NaN dropout is allowed and
@@ -47,7 +52,9 @@ impl PoseEstimator {
             depths.len() == area && colors.len() == area,
             "resolution mismatch: estimator expects {}x{} (got {} depth px) -- \
              run with RES matching the training resolution",
-            self.h, self.w, depths.len()
+            self.h,
+            self.w,
+            depths.len()
         );
 
         // (1, 4, H, W): depth plane then B, G, R planes, same as gen_dataset

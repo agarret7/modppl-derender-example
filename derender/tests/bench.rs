@@ -1,15 +1,11 @@
-use std::{
-    fs::create_dir_all,
-    time::Instant
-};
-use glam::{Vec3A, Mat4, Affine3A};
+use glam::{Affine3A, Mat4, Vec3A};
 pub use modppl_derender::{
+    baseline,
+    config::{AREA, FAR, FOVY, H, NEAR, W},
     core::*,
-    config::{W, H, AREA, NEAR, FAR, FOVY},
     serialization::save_depths,
-    baseline
 };
- 
+use std::{fs::create_dir_all, time::Instant};
 
 const NUM_FRAMES: usize = 10_000;
 
@@ -21,8 +17,11 @@ pub fn test_compare_baseline_and_glam() {
     let x = baseline::linear::vec3_euler_to_pose([0.0, 1.0, 1.2], [0.0, 0.0, 0.0]);
     let proj = baseline::linear::perspective(FOVY(), W() as f32 / H() as f32, NEAR(), FAR());
     let ground = (
-        Box::new(baseline::solid::Plane { origin: baseline::linear::vec3_zero(), normal: [0.0, 1.0, 0.0] }) as Box<dyn baseline::solid::Solid>,
-        [0.0, 0.0, 0.0]
+        Box::new(baseline::solid::Plane {
+            origin: baseline::linear::vec3_zero(),
+            normal: [0.0, 1.0, 0.0],
+        }) as Box<dyn baseline::solid::Solid>,
+        [0.0, 0.0, 0.0],
     );
     let scene = vec![ground];
 
@@ -32,16 +31,17 @@ pub fn test_compare_baseline_and_glam() {
         baseline::ray::raytrace_depths(x, proj, &scene, &mut out);
     }
     let fps1 = NUM_FRAMES as f64 / now.elapsed().as_secs_f64();
-    println!("Baseline FPS: {fps1}", );
+    println!("Baseline FPS: {fps1}",);
     save_depths("out/baseline_ground.png", &out);
 
     // Glam
     let x = Affine3A::from_translation([0.0, 1.0, 1.2].into());
     let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32 / H() as f32, NEAR(), FAR());
-    let ground = (
-        Box::new(Plane { origin: Vec3A::ZERO, normal: [0.0, 1.0, 0.0].into() }) as Box<dyn Solid>,
-        [0.0, 0.0, 0.0]
-    );
+    let ground =
+        Box::new(Plane {
+            origin: Vec3A::ZERO,
+            normal: [0.0, 1.0, 0.0].into(),
+        }) as Box<dyn Solid>;
     let scene = vec![ground];
 
     let mut out = vec![0.0; AREA()];

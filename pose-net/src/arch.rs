@@ -30,11 +30,24 @@ pub fn conv_arch(h: usize, w: usize) -> Result<(Vec<ConvLayerInfo>, usize)> {
     let mut ww = w;
     let mut layers = Vec::with_capacity(LAYERS.len());
     for (index, &(cin, cout)) in LAYERS.iter().enumerate() {
-        let stride = if last_stride_1 && index == LAYERS.len() - 1 { 1 } else { 2 };
+        let stride = if last_stride_1 && index == LAYERS.len() - 1 {
+            1
+        } else {
+            2
+        };
         // All PoseNet convolutions use kernel=3, padding=1, dilation=1.
         let out_h = (hh + 2 - 3) / stride + 1;
         let out_w = (ww + 2 - 3) / stride + 1;
-        layers.push(ConvLayerInfo { index, cin, cout, stride, in_h: hh, in_w: ww, out_h, out_w });
+        layers.push(ConvLayerInfo {
+            index,
+            cin,
+            cout,
+            stride,
+            in_h: hh,
+            in_w: ww,
+            out_h,
+            out_w,
+        });
         hh = out_h;
         ww = out_w;
     }

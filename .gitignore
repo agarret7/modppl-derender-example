@@ -26,6 +26,12 @@ derender/out/
 out/snapshot_*.bmp
 out.bak/
 
+# warp_into_quad.sh intermediate per-frame scratch (mask + hundreds of
+# rasterized trace-text frames); only its top-level composited/fused outputs
+# are real deliverables
+out/composited/mask.png
+out/composited/trace_frames/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

@@ -2,22 +2,23 @@ use crate::image::*;
 
 use glam::Vec3A;
 
-
 pub trait Solid: Sync {
     fn ray_intersect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<f32>;
-    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)>;
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32, Vec3A)>;
 
     /// Color at a hit, given the surface normal and the `Scene`-assigned `base_color`.
     /// Single-colored solids (the default) ignore the normal. Multi-colored solids
     /// like `Cube` override this to vary color by face.
-    fn color_at(&self, _normal: Vec3A, base_color: Color) -> Color { base_color }
+    fn color_at(&self, _normal: Vec3A, base_color: Color) -> Color {
+        base_color
+    }
 }
 
-pub type Scene = Vec<(Box<dyn Solid>,Color)>;
+pub type Scene = Vec<(Box<dyn Solid>, Color)>;
 
 pub struct Plane {
     pub origin: Vec3A,
-    pub normal: Vec3A
+    pub normal: Vec3A,
 }
 
 impl Solid for Plane {
@@ -26,21 +27,29 @@ impl Solid for Plane {
         let normalv = self.normal;
         let denom = normalv.dot(ray_dir);
         let d = (origin - ray_origin).dot(normalv) / denom;
-        if d > 1e-6 { Some(d) } else { None }
+        if d > 1e-6 {
+            Some(d)
+        } else {
+            None
+        }
     }
 
-    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32, Vec3A)> {
         let origin = self.origin;
         let normalv = self.normal;
         let denom = normalv.dot(ray_dir);
         let d = (origin - ray_origin).dot(normalv) / denom;
-        if d > 1e-6 { Some((d, normalv)) } else { None }
+        if d > 1e-6 {
+            Some((d, normalv))
+        } else {
+            None
+        }
     }
 }
 
 pub struct Sphere {
     pub center: Vec3A,
-    pub radius: f32
+    pub radius: f32,
 }
 
 impl Sphere {
@@ -48,7 +57,7 @@ impl Sphere {
         let mut dp = self.center - ray_origin;
         let ddp = ray_dir.dot(dp);
         let dpp = dp.dot(dp);
-        
+
         // remedy term for numerical stability
         dp -= ray_dir * ddp;
 
@@ -65,7 +74,9 @@ impl Sphere {
         let mut t1 = q;
         let mut t2 = (dpp - r2) / q;
 
-        if t1 > t2 { (t1, t2) = (t2, t1); }
+        if t1 > t2 {
+            (t1, t2) = (t2, t1);
+        }
 
         if t1 < 0.0 && t2 < 0.0 {
             return None;
@@ -80,7 +91,7 @@ impl Solid for Sphere {
         self.intersect(ray_origin, ray_dir)
     }
 
-    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32, Vec3A)> {
         if let Some(d) = self.intersect(ray_origin, ray_dir) {
             Some((d, ray_origin + ray_dir * d - self.center))
         } else {
@@ -94,12 +105,12 @@ impl Solid for Sphere {
 pub struct Cylinder {
     pub base: Vec3A,
     pub radius: f32,
-    pub height: f32
+    pub height: f32,
 }
 
 impl Cylinder {
     /// Returns the nearest positive hit as (distance, unit normal).
-    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32, Vec3A)> {
         let eps = 1e-6;
         let r = self.radius;
         let y_lo = self.base.y;
@@ -137,7 +148,10 @@ impl Cylinder {
 
         // end caps: disks at y_lo and y_hi
         if dir.y.abs() > eps {
-            for (cap_y, n) in [(y_lo, Vec3A::new(0.0, -1.0, 0.0)), (y_hi, Vec3A::new(0.0, 1.0, 0.0))] {
+            for (cap_y, n) in [
+                (y_lo, Vec3A::new(0.0, -1.0, 0.0)),
+                (y_hi, Vec3A::new(0.0, 1.0, 0.0)),
+            ] {
                 let t = (cap_y - o.y) / dir.y;
                 if t > eps && t < best_t {
                     let px = o.x + t * dir.x - self.base.x;
@@ -151,7 +165,11 @@ impl Cylinder {
             }
         }
 
-        if hit { Some((best_t, best_n)) } else { None }
+        if hit {
+            Some((best_t, best_n))
+        } else {
+            None
+        }
     }
 }
 
@@ -160,7 +178,7 @@ impl Solid for Cylinder {
         self.intersect(ray_origin, ray_dir).map(|(t, _)| t)
     }
 
-    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32, Vec3A)> {
         self.intersect(ray_origin, ray_dir)
     }
 }
@@ -171,7 +189,7 @@ impl Solid for Cylinder {
 pub struct Cone {
     pub base: Vec3A,
     pub base_radius: f32,
-    pub height: f32
+    pub height: f32,
 }
 
 impl Cone {
@@ -182,7 +200,7 @@ impl Cone {
     /// linearly from base_radius at y=0 to 0 at the apex y=height. This is a
     /// double-napped cone; restricting hits to local y in [0, height] keeps
     /// only the physical nappe.
-    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32, Vec3A)> {
         let eps = 1e-6;
         let h = self.height;
         let k = self.base_radius / h;
@@ -236,7 +254,11 @@ impl Cone {
             }
         }
 
-        if hit { Some((best_t, best_n)) } else { None }
+        if hit {
+            Some((best_t, best_n))
+        } else {
+            None
+        }
     }
 }
 
@@ -245,7 +267,7 @@ impl Solid for Cone {
         self.intersect(ray_origin, ray_dir).map(|(t, _)| t)
     }
 
-    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32, Vec3A)> {
         self.intersect(ray_origin, ray_dir)
     }
 }
@@ -255,13 +277,13 @@ impl Solid for Cone {
 /// `Scene`-assigned `base_color`, which is ignored.
 pub struct Cube {
     pub center: Vec3A,
-    pub half_extent: f32
+    pub half_extent: f32,
 }
 
 impl Cube {
     /// Returns the nearest positive hit as (distance, unit face normal), via the
     /// standard AABB slab method.
-    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn intersect(&self, o: Vec3A, dir: Vec3A) -> Option<(f32, Vec3A)> {
         let eps = 1e-6;
         let he = Vec3A::splat(self.half_extent);
         let inv_dir = Vec3A::ONE / dir;
@@ -300,39 +322,51 @@ impl Solid for Cube {
         self.intersect(ray_origin, ray_dir).map(|(t, _)| t)
     }
 
-    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32,Vec3A)> {
+    fn ray_intersect_reflect(&self, ray_origin: Vec3A, ray_dir: Vec3A) -> Option<(f32, Vec3A)> {
         self.intersect(ray_origin, ray_dir)
     }
 
     fn color_at(&self, normal: Vec3A, _base_color: Color) -> Color {
         // Color = [f32; 3] in BGR order (see image.rs). Standard Rubik's cube
         // scheme: white/yellow opposite, red/orange opposite, blue/green opposite.
-        const WHITE:  Color = [1.000, 1.000, 1.000]; // +Y
+        const WHITE: Color = [1.000, 1.000, 1.000]; // +Y
         const YELLOW: Color = [0.000, 1.000, 1.000]; // -Y
-        const RED:    Color = [0.000, 0.000, 0.835]; // -X
+        const RED: Color = [0.000, 0.000, 0.835]; // -X
         const ORANGE: Color = [0.000, 0.349, 1.000]; // +X
-        const BLUE:   Color = [0.792, 0.267, 0.000]; // +Z
-        const GREEN:  Color = [0.282, 0.608, 0.000]; // -Z
+        const BLUE: Color = [0.792, 0.267, 0.000]; // +Z
+        const GREEN: Color = [0.282, 0.608, 0.000]; // -Z
 
-        if normal.x > 0.5      { ORANGE }
-        else if normal.x < -0.5 { RED }
-        else if normal.y > 0.5  { WHITE }
-        else if normal.y < -0.5 { YELLOW }
-        else if normal.z > 0.5  { BLUE }
-        else                    { GREEN }
+        if normal.x > 0.5 {
+            ORANGE
+        } else if normal.x < -0.5 {
+            RED
+        } else if normal.y > 0.5 {
+            WHITE
+        } else if normal.y < -0.5 {
+            YELLOW
+        } else if normal.z > 0.5 {
+            BLUE
+        } else {
+            GREEN
+        }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn approx(a: f32, b: f32) -> bool { (a - b).abs() < 1e-4 }
+    fn approx(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
 
     // unit cylinder: base at origin, radius 1, height 2 (spans y in [0, 2])
     fn unit() -> Cylinder {
-        Cylinder { base: Vec3A::ZERO, radius: 1.0, height: 2.0 }
+        Cylinder {
+            base: Vec3A::ZERO,
+            radius: 1.0,
+            height: 2.0,
+        }
     }
 
     #[test]
@@ -342,8 +376,15 @@ mod tests {
             .intersect([0.0, 1.0, 5.0].into(), [0.0, 0.0, -1.0].into())
             .expect("expected a side hit");
         assert!(approx(t, 4.0), "t = {t}");
-        assert!(approx(n.x, 0.0) && approx(n.y, 0.0) && approx(n.z, 1.0), "n = {n:?}");
-        assert!(approx(n.length(), 1.0), "normal should be unit, got {}", n.length());
+        assert!(
+            approx(n.x, 0.0) && approx(n.y, 0.0) && approx(n.z, 1.0),
+            "n = {n:?}"
+        );
+        assert!(
+            approx(n.length(), 1.0),
+            "normal should be unit, got {}",
+            n.length()
+        );
     }
 
     #[test]
@@ -374,7 +415,11 @@ mod tests {
 
     // unit cone: base at origin, base_radius 1, height 1 (45-degree slope)
     fn unit_cone() -> Cone {
-        Cone { base: Vec3A::ZERO, base_radius: 1.0, height: 1.0 }
+        Cone {
+            base: Vec3A::ZERO,
+            base_radius: 1.0,
+            height: 1.0,
+        }
     }
 
     #[test]
@@ -384,7 +429,10 @@ mod tests {
             .intersect([0.0, -5.0, 0.0].into(), [0.0, 1.0, 0.0].into())
             .expect("expected a base hit");
         assert!(approx(t, 5.0), "t = {t}");
-        assert!(approx(n.x, 0.0) && approx(n.y, -1.0) && approx(n.z, 0.0), "n = {n:?}");
+        assert!(
+            approx(n.x, 0.0) && approx(n.y, -1.0) && approx(n.z, 0.0),
+            "n = {n:?}"
+        );
     }
 
     #[test]
@@ -395,10 +443,20 @@ mod tests {
             .intersect([5.0, 0.5, 0.0].into(), [-1.0, 0.0, 0.0].into())
             .expect("expected a side hit");
         assert!(approx(t, 4.5), "t = {t}"); // hits at x=0.5, started at x=5
-        // 45-degree cone: outward normal also tilts 45 degrees (up-and-out)
-        assert!(approx(n.x, (0.5f32).sqrt()) && approx(n.z, 0.0), "n = {n:?}");
-        assert!(n.y > 0.0, "normal should point outward and upward, got {n:?}");
-        assert!(approx(n.length(), 1.0), "normal should be unit, got {}", n.length());
+                                            // 45-degree cone: outward normal also tilts 45 degrees (up-and-out)
+        assert!(
+            approx(n.x, (0.5f32).sqrt()) && approx(n.z, 0.0),
+            "n = {n:?}"
+        );
+        assert!(
+            n.y > 0.0,
+            "normal should point outward and upward, got {n:?}"
+        );
+        assert!(
+            approx(n.length(), 1.0),
+            "normal should be unit, got {}",
+            n.length()
+        );
     }
 
     #[test]
@@ -411,7 +469,10 @@ mod tests {
 
     // unit cube: centered at origin, half-extent 1 (spans [-1, 1] on each axis)
     fn unit_cube() -> Cube {
-        Cube { center: Vec3A::ZERO, half_extent: 1.0 }
+        Cube {
+            center: Vec3A::ZERO,
+            half_extent: 1.0,
+        }
     }
 
     #[test]
@@ -420,7 +481,10 @@ mod tests {
             .intersect([0.0, 5.0, 0.0].into(), [0.0, -1.0, 0.0].into())
             .expect("expected a top-face hit");
         assert!(approx(t, 4.0), "t = {t}");
-        assert!(approx(n.x, 0.0) && approx(n.y, 1.0) && approx(n.z, 0.0), "n = {n:?}");
+        assert!(
+            approx(n.x, 0.0) && approx(n.y, 1.0) && approx(n.z, 0.0),
+            "n = {n:?}"
+        );
     }
 
     #[test]
@@ -430,7 +494,10 @@ mod tests {
             .intersect([5.0, 0.0, 0.0].into(), [-1.0, 0.0, 0.0].into())
             .expect("expected a side-face hit");
         assert!(approx(t, 4.0), "t = {t}");
-        assert!(approx(n.x, 1.0) && approx(n.y, 0.0) && approx(n.z, 0.0), "n = {n:?}");
+        assert!(
+            approx(n.x, 1.0) && approx(n.y, 0.0) && approx(n.z, 0.0),
+            "n = {n:?}"
+        );
     }
 
     #[test]
@@ -447,22 +514,28 @@ mod tests {
         let dummy_base = [0.0, 0.0, 0.0];
 
         let colors = [
-            cube.color_at([1.0, 0.0, 0.0].into(), dummy_base),  // +X orange
+            cube.color_at([1.0, 0.0, 0.0].into(), dummy_base), // +X orange
             cube.color_at([-1.0, 0.0, 0.0].into(), dummy_base), // -X red
-            cube.color_at([0.0, 1.0, 0.0].into(), dummy_base),  // +Y white
+            cube.color_at([0.0, 1.0, 0.0].into(), dummy_base), // +Y white
             cube.color_at([0.0, -1.0, 0.0].into(), dummy_base), // -Y yellow
-            cube.color_at([0.0, 0.0, 1.0].into(), dummy_base),  // +Z blue
+            cube.color_at([0.0, 0.0, 1.0].into(), dummy_base), // +Z blue
             cube.color_at([0.0, 0.0, -1.0].into(), dummy_base), // -Z green
         ];
 
         // all 6 face colors should be distinct
         for i in 0..colors.len() {
-            for j in (i+1)..colors.len() {
-                assert_ne!(colors[i], colors[j], "faces {i} and {j} have the same color");
+            for j in (i + 1)..colors.len() {
+                assert_ne!(
+                    colors[i], colors[j],
+                    "faces {i} and {j} have the same color"
+                );
             }
         }
 
         // base_color should be ignored entirely (cube is multi-colored, not scene-tinted)
-        assert_eq!(cube.color_at([1.0, 0.0, 0.0].into(), [0.5, 0.5, 0.5]), colors[0]);
+        assert_eq!(
+            cube.color_at([1.0, 0.0, 0.0].into(), [0.5, 0.5, 0.5]),
+            colors[0]
+        );
     }
 }

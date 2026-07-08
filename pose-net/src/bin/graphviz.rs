@@ -49,7 +49,11 @@ fn main() -> Result<()> {
         .spawn()
         .context("failed to run Graphviz `dot`; install graphviz or use --format dot")?;
 
-    child.stdin.as_mut().expect("dot stdin is piped").write_all(dot.as_bytes())?;
+    child
+        .stdin
+        .as_mut()
+        .expect("dot stdin is piped")
+        .write_all(dot.as_bytes())?;
     let status = child.wait().context("failed to wait for Graphviz `dot`")?;
     anyhow::ensure!(status.success(), "Graphviz `dot` exited with {status}");
 

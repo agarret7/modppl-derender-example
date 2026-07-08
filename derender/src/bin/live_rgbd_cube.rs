@@ -2,7 +2,7 @@ use modppl::prelude::*;
 use modppl_derender::{
     core::*,
     image::{Colors, Depths},
-    inference::Kernel,
+    inference::InferenceKernel,
     live::run_rgbd_loop,
 };
 
@@ -23,16 +23,29 @@ fn parse_args() -> (f32, f32, bool) {
         match args[i].as_str() {
             "--d-noise" | "-d" => {
                 if let Some(v) = args.get(i + 1).and_then(|s| s.parse().ok()) {
-                    depth_noise = v; i += 2;
-                } else { eprintln!("--d-noise requires a float"); i += 1; }
+                    depth_noise = v;
+                    i += 2;
+                } else {
+                    eprintln!("--d-noise requires a float");
+                    i += 1;
+                }
             }
             "--rgb-noise" | "-c" => {
                 if let Some(v) = args.get(i + 1).and_then(|s| s.parse().ok()) {
-                    color_noise = v; i += 2;
-                } else { eprintln!("--rgb-noise requires a float"); i += 1; }
+                    color_noise = v;
+                    i += 2;
+                } else {
+                    eprintln!("--rgb-noise requires a float");
+                    i += 1;
+                }
             }
-            "--path-trace" => { path_trace = true; i += 1; }
-            _ => { i += 1; }
+            "--path-trace" => {
+                path_trace = true;
+                i += 1;
+            }
+            _ => {
+                i += 1;
+            }
         }
     }
     (depth_noise, color_noise, path_trace)
@@ -46,29 +59,29 @@ fn main() -> anyhow::Result<()> {
         if path_trace { "path" } else { "flat" }
     );
 
-    // masks defined here so they outlive the closure (Kernel borrows them)
-    let mut cube_mask = AddrMap::new();
-    cube_mask.visit("cube_u");
-    cube_mask.visit("cube_v");
+    // passes defined here so they outlive the closure (InferenceKernel borrows them)
+    let mut cube_pass = AddrMap::new();
+    cube_pass.visit("cube_u");
+    cube_pass.visit("cube_v");
 
-    let mut orbit_azimuth_mask = AddrMap::new();
-    orbit_azimuth_mask.visit("orbit_azimuth");
+    let mut orbit_azimuth_pass = AddrMap::new();
+    orbit_azimuth_pass.visit("orbit_azimuth");
 
-    let mut orbit_radius_elevation_mask = AddrMap::new();
-    orbit_radius_elevation_mask.visit("orbit_radius");
-    orbit_radius_elevation_mask.visit("orbit_sin_elevation");
+    let mut orbit_radius_elevation_pass = AddrMap::new();
+    orbit_radius_elevation_pass.visit("orbit_radius");
+    orbit_radius_elevation_pass.visit("orbit_sin_elevation");
 
-    let mut lookat_jitter_mask = AddrMap::new();
-    lookat_jitter_mask.visit("lookat_yaw_jitter");
-    lookat_jitter_mask.visit("lookat_pitch_jitter");
+    let mut lookat_jitter_pass = AddrMap::new();
+    lookat_jitter_pass.visit("lookat_yaw_jitter");
+    lookat_jitter_pass.visit("lookat_pitch_jitter");
 
-    let mut ground_albedo_mask = AddrMap::new();
-    ground_albedo_mask.visit("ground_c0");
-    ground_albedo_mask.visit("ground_c1");
-    ground_albedo_mask.visit("ground_c2");
-    ground_albedo_mask.visit("illum_c0");
-    ground_albedo_mask.visit("illum_c1");
-    ground_albedo_mask.visit("illum_c2");
+    let mut ground_albedo_pass = AddrMap::new();
+    ground_albedo_pass.visit("ground_c0");
+    ground_albedo_pass.visit("ground_c1");
+    ground_albedo_pass.visit("ground_c2");
+    ground_albedo_pass.visit("illum_c0");
+    ground_albedo_pass.visit("illum_c1");
+    ground_albedo_pass.visit("illum_c2");
 
     let mut trace: Option<DynTrace<(f32, f32, bool), (Depths, Colors)>> = None;
 
@@ -78,33 +91,55 @@ fn main() -> anyhow::Result<()> {
         constraints.observe("color_observation", Arc::new(obs_color));
 
         let current = match trace.take() {
-            None => cube_rgbd_model.generate((depth_noise, color_noise, path_trace), constraints).0,
-            Some(t) => cube_rgbd_model.update(
-                t, (depth_noise, color_noise, path_trace), ArgDiff::NoChange, constraints,
-            ).0,
+            None => {
+                cube_rgbd_model
+                    .generate((depth_noise, color_noise, path_trace), constraints)
+                    .0
+            }
+            Some(t) => {
+                cube_rgbd_model
+                    .update(
+                        t,
+                        (depth_noise, color_noise, path_trace),
+                        ArgDiff::NoChange,
+                        constraints,
+                    )
+                    .0
+            }
         };
 
-        let result = Kernel::new(&cube_rgbd_model, current)
-            .regen_mh(&cube_mask)
-            .mh(&rgbd_drift, (vec!["cube_u", "cube_v"], 0.05))
+        let result = InferenceKernel::new(&cube_rgbd_model)
+            .regen_mh(&cube_pass)
+            .mh(&rgbd_drift, (pass_of(&["cube_u", "cube_v"]), 0.05))
             .then(|t| {
                 let mut rng = ThreadRng::default();
                 if u01(&mut rng) < ORBIT_RESAMPLE_PROB {
-                    regen_mh(&cube_rgbd_model, t, &orbit_azimuth_mask)
+                    regen_mh(&cube_rgbd_model, t, &orbit_azimuth_pass)
                 } else {
-                    mh(&cube_rgbd_model, t, &rgbd_drift, (vec!["orbit_azimuth"], 0.1))
+                    mh(
+                        &cube_rgbd_model,
+                        t,
+                        &rgbd_drift,
+                        (pass_of(&["orbit_azimuth"]), 0.1),
+                    )
                 }
             })
             .then(|t| {
                 let mut rng = ThreadRng::default();
                 if u01(&mut rng) < ORBIT_RESAMPLE_PROB {
-                    regen_mh(&cube_rgbd_model, t, &orbit_radius_elevation_mask)
+                    regen_mh(&cube_rgbd_model, t, &orbit_radius_elevation_pass)
                 } else {
-                    mh(&cube_rgbd_model, t, &rgbd_drift, (vec!["orbit_radius", "orbit_sin_elevation"], 0.05))
+                    mh(
+                        &cube_rgbd_model,
+                        t,
+                        &rgbd_drift,
+                        (pass_of(&["orbit_radius", "orbit_sin_elevation"]), 0.05),
+                    )
                 }
             })
-            .regen_mh(&lookat_jitter_mask)
-            .regen_mh(&ground_albedo_mask)
+            .regen_mh(&lookat_jitter_pass)
+            .regen_mh(&ground_albedo_pass)
+            .iter(current)
             .take(SWEEPS_PER_FRAME)
             .last()
             .unwrap();

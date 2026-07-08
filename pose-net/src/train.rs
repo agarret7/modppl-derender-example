@@ -1,11 +1,11 @@
-use pose_net::{model, dataset};
+use pose_net::{dataset, model};
 
 use anyhow::Result;
 use candle_core::Device;
 use candle_nn::{loss::mse, AdamW, Optimizer, ParamsAdamW, VarMap};
 use clap::Parser;
-use model::PoseNet;
 use dataset::Dataset;
+use model::PoseNet;
 
 #[derive(Parser)]
 struct Args {
@@ -30,15 +30,22 @@ fn main() -> Result<()> {
     println!("training on {device:?}");
 
     let dataset = Dataset::load(&args.data, &Device::Cpu, args.take)?;
-    println!("loaded {} samples at {}x{}", dataset.n, dataset.h, dataset.w);
+    println!(
+        "loaded {} samples at {}x{}",
+        dataset.n, dataset.h, dataset.w
+    );
 
     let varmap = VarMap::new();
     let vb = candle_nn::VarBuilder::from_varmap(&varmap, candle_core::DType::F32, &device);
     let model = PoseNet::new(vb, dataset.h, dataset.w)?;
 
-    let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW {
-        lr: args.lr, ..Default::default()
-    })?;
+    let mut opt = AdamW::new(
+        varmap.all_vars(),
+        ParamsAdamW {
+            lr: args.lr,
+            ..Default::default()
+        },
+    )?;
 
     let n = dataset.n;
     let batch = args.batch;
@@ -52,8 +59,8 @@ fn main() -> Result<()> {
         // approximate -- "sync" absorbs whatever was still in flight. "data"
         // (CPU gather + H2D upload) is accurate.
         let mut t_data = std::time::Duration::ZERO;
-        let mut t_fwd  = std::time::Duration::ZERO;
-        let mut t_bwd  = std::time::Duration::ZERO;
+        let mut t_fwd = std::time::Duration::ZERO;
+        let mut t_bwd = std::time::Duration::ZERO;
         let mut t_sync = std::time::Duration::ZERO;
         // cosine decay from lr to lr/100: a flat rate that finds the minimum
         // fast is too hot to *stay* in it -- the tail end of training needs
@@ -90,8 +97,8 @@ fn main() -> Result<()> {
             let t4 = std::time::Instant::now();
 
             t_data += t1 - t0;
-            t_fwd  += t2 - t1;
-            t_bwd  += t3 - t2;
+            t_fwd += t2 - t1;
+            t_bwd += t3 - t2;
             t_sync += t4 - t3;
             n_batches += 1;
         }
@@ -108,9 +115,14 @@ fn main() -> Result<()> {
         println!(
             "epoch {}/{} — azimuth {az_loss:.5}  elev/radius {er_loss:.5}  lr {lr:.1e}  \
              | {epoch_s:.1}s (data {:.1} fwd {:.1} bwd {:.1} sync {:.1})  ETA {:.0}m{:02.0}s{}",
-            epoch + 1, args.epochs,
-            t_data.as_secs_f32(), t_fwd.as_secs_f32(), t_bwd.as_secs_f32(), t_sync.as_secs_f32(),
-            (eta_s / 60.0).floor(), eta_s % 60.0,
+            epoch + 1,
+            args.epochs,
+            t_data.as_secs_f32(),
+            t_fwd.as_secs_f32(),
+            t_bwd.as_secs_f32(),
+            t_sync.as_secs_f32(),
+            (eta_s / 60.0).floor(),
+            eta_s % 60.0,
             if is_best { "  *" } else { "" },
         );
         if is_best {
@@ -128,11 +140,14 @@ fn fastrand_shuffle(v: &mut Vec<usize>) {
     use std::hash::{Hash, Hasher};
     use std::time::SystemTime;
     let seed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64;
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64;
     let mut s = seed;
     for i in (1..v.len()).rev() {
         let mut h = DefaultHasher::new();
-        s.hash(&mut h); s = h.finish();
+        s.hash(&mut h);
+        s = h.finish();
         let j = (s as usize) % (i + 1);
         v.swap(i, j);
     }

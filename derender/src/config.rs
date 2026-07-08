@@ -1,7 +1,6 @@
+use std::env;
 use std::f32::consts::PI;
 use std::sync::OnceLock;
-use std::env;
-
 
 /* constants */
 
@@ -15,14 +14,25 @@ static FOVY_RAD: OnceLock<f32> = OnceLock::new();
 /// Defaults to 64. Fixed for the lifetime of the process once first read.
 fn resolution() -> usize {
     *RESOLUTION.get_or_init(|| {
-        env::var("RES").ok().and_then(|s| s.parse().ok()).unwrap_or(64)
+        env::var("RES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(64)
     })
 }
 
-pub fn H() -> usize { resolution() }
-pub fn W() -> usize { resolution() }
-pub fn AREA() -> usize { H()*W() }
-pub fn VP() -> [f32; 4] { [ 0.0, 0.0, W() as f32, H() as f32 ] }
+pub fn H() -> usize {
+    resolution()
+}
+pub fn W() -> usize {
+    resolution()
+}
+pub fn AREA() -> usize {
+    H() * W()
+}
+pub fn VP() -> [f32; 4] {
+    [0.0, 0.0, W() as f32, H() as f32]
+}
 
 /// Vertical field of view, in radians. Defaults to PI/2 (matches the synthetic
 /// tutorial models' assumed camera). For the live RealSense demo, a mismatched
@@ -33,7 +43,10 @@ pub fn VP() -> [f32; 4] { [ 0.0, 0.0, W() as f32, H() as f32 ] }
 /// intrinsics (see `realsense::calibrate_fovy`), not guessed.
 pub fn FOVY() -> f32 {
     *FOVY_RAD.get_or_init(|| {
-        env::var("FOVY_RAD").ok().and_then(|s| s.parse().ok()).unwrap_or(PI/2.0)
+        env::var("FOVY_RAD")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(PI / 2.0)
     })
 }
 
@@ -46,12 +59,18 @@ pub fn FOVY() -> f32 {
 /// models' world scale and are unaffected unless overridden.
 pub fn NEAR() -> f32 {
     *NEAR_PLANE.get_or_init(|| {
-        env::var("NEAR_M").ok().and_then(|s| s.parse().ok()).unwrap_or(0.2)
+        env::var("NEAR_M")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.2)
     })
 }
 pub fn FAR() -> f32 {
     *FAR_PLANE.get_or_init(|| {
-        env::var("FAR_M").ok().and_then(|s| s.parse().ok()).unwrap_or(7.5)
+        env::var("FAR_M")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(7.5)
     })
 }
 
@@ -64,7 +83,12 @@ pub fn FAR() -> f32 {
 /// must agree across dataset generation, training, and inference, and
 /// requiring four env vars on every command is how mismatches happen.
 pub fn apply_cube_pipeline_defaults() {
-    for (key, val) in [("RES", "128"), ("FOVY_RAD", "0.74"), ("NEAR_M", "0.01"), ("FAR_M", "1.0")] {
+    for (key, val) in [
+        ("RES", "128"),
+        ("FOVY_RAD", "0.74"),
+        ("NEAR_M", "0.01"),
+        ("FAR_M", "1.0"),
+    ] {
         if env::var(key).is_err() {
             env::set_var(key, val);
         }
