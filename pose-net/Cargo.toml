@@ -5,6 +5,10 @@ edition = "2021"
 
 [features]
 cuda = ["candle-core/cuda"]
+# forwards to modppl-derender's realsense feature -- see that crate's
+# Cargo.toml for why this is opt-in (avoids requiring librealsense2 for
+# anyone not running live_cnn against a real camera).
+realsense = ["modppl-derender/realsense"]
 
 [dependencies]
 # note: the "cudnn" feature was tried and measured *slower* than candle's
@@ -29,6 +33,7 @@ path = "src/infer.rs"
 [[bin]]
 name = "live_cnn"
 path = "src/bin/live_cnn.rs"
+required-features = ["realsense"]
 
 [[bin]]
 name = "synth_cnn"

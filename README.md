@@ -29,6 +29,9 @@ for them:
 - **macOS**: `xcode-select --install`
 - **Windows**: MSVC toolchain installed alongside Rust covers it
 
+No Intel RealSense hardware or `librealsense2` needed for any of this.
+"Live RealSense demo" below, is feature gated, not needed for the examples.
+
 ## Gallery
 
 Each pair below is observation (left) vs. the inferred hypothesis converging onto it (right),
@@ -159,8 +162,12 @@ stream against `cube_rgbd_model` in real time — tracking a physical cube's pos
 color render (viable because real stickers are already flat and saturated). Requires
 `librealsense2` and a connected D400-series camera.
 
+This is the **only** thing in the repo that needs `librealsense2` -- it's gated behind
+the `realsense` feature (off by default), so the tutorials, scenes, and tests never
+touch it:
+
 ```sh
-cargo run --release --bin live_rgbd_cube
+cargo run --release --features realsense --bin live_rgbd_cube
 ```
 
 - `RES` — render resolution (default 64).
@@ -191,8 +198,8 @@ cargo run -p pose-net --bin graphviz -- --output out/pose_net.svg
 # synthetic validation: prints CNN vs ground truth, C toggles the guided move live
 cargo run --release -p pose-net --bin synth_cnn
 
-# live camera with the CNN proposal
-cargo run --release -p pose-net --bin live_cnn
+# live camera with the CNN proposal (also gated behind the realsense feature)
+cargo run --release -p pose-net --features realsense --bin live_cnn
 ```
 
 Opens a window with observed depth/color (top) and the live inferred hypothesis (bottom).
