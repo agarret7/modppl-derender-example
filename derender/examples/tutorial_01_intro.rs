@@ -13,98 +13,85 @@ use modppl::prelude::*;
 use modppl_derender::inference::InferenceKernel;
 
 dyngen!(
-    // dyngen! defines _two_ primitive operations: `%=` and `/=`:
+    // dyngen! defines _two_ primitive operations: `%=` and `/=`
+    // both are of the mathematical form "var ~ random_function(args)"
 
-    // `let <var> = <dist: Distribution> %= <addr: &str>;`
-    // declare the random `var` at `addr` with primitive distribution `dist`.
+    // `<dist: Distribution>(params) %= <addr: &str>;`
+    // create a random `var` at `addr` with primitive distribution `dist`.
 
-    // `let <var> = <model: DynGenFn> /= <addr: &str>;
-    // declare the sub-trace `var` at `addr` with dynamic generaive function `model`.
-    
+    // `<model: DynGenFn>(args) /= <addr: &str>;
+    // create a sub-trace `var` at `addr` with dynamic generaive function `model`.
+
     fn guess_the_number_model(noise: f32) -> f32 {
-        let hidden = uniform(0.0, 100.0) %= "hidden";
+        // parens not needed, just included to highlight
+        let hidden = (uniform(0.0, 100.0) %= "hidden");
+        // i.e. hidden ~ uniform(0.0, 100.0)
 
-        // measurements
         normal(hidden, noise) %= "m0";
         normal(hidden, noise) %= "m1";
         normal(hidden, noise) %= "m2";
         normal(hidden, noise) %= "m3";
         normal(hidden, noise) %= "m4";
+        // i.e. m[i] ~ normal(hidden, noise), i in 0..5
+
+        // equivalently in real Rust
+
+        // for i in 0..5 {
+        //     normal(hidden, noise) %= &format!("m{i}");
+        // }
 
         hidden
     }
 );
 
-const MEASUREMENT_ADDRS: [&str; 5] = ["m0", "m1", "m2", "m3", "m4"];
+// ─── inference ───────────────────────────────────────────────────────────────
 
 fn main() {
-    // `DynTrie` is the `data` type of `DynTrace`.
-    // synthesize a ground truth: fix "hidden" and sample the rest (the five
-    // measurements) from the model's prior distribution
-    let mut synth = DynTrie::new();
-
-    // This _mutates_ `synth` by constraining "hidden" to a value, in this case 42.0_f32.
-    synth.observe("hidden", Arc::new(42.0_f32)); // yes, Arc is required.
-    let s = modppl::dyntrie_to_string(&synth);
-    println!("{s}");
-
-    // The Dynamic Modeling Language DSL
-    //
-    // A dynamic generative function is a `GenFn` (DynGenFn : GenFn).
-    // It is also a probabilistic program that records addressable
-    // random vars in a modeling struct, called the DynTrace : Trace
-    //
-    //  struct DynTrace<A,B> {
-    //      args: A,
-    //      data: DynTrie,  // = Trie<Arc<dyn Any + Send + Sync>>
-    //      retv: Option<B>,
-    //      logjp: Real
-    //  }
-
-    let noise = 5.0; // try a few different noise levels. What do you observe?
-    let gt = guess_the_number_model.generate(noise, synth).0;
-    let s = modppl::dyntrace_to_string(&gt);
-    println!("{s}");
-
-    // Read the randomly-generated "hidden" number.
-    // SAFETY: read may panic if the type is wrong or the address is uninhabited.
-    //         try changing the type `f32` -> `f64` or "hidden", it should panic.
-    let hidden = gt.data.read::<f32>("hidden");
-    println!("true secret: {hidden}");
-
-    // Build constraints from the measurements alone (not the full trace)
-    // "hidden" is deliberately left unconstrained, since that's exactly the
-    // unknown we're inferring.
     let mut constraints = DynTrie::new();
-    println!("measurements:");
-    for addr in MEASUREMENT_ADDRS {
-        let measurement = gt.data.read::<f32>(addr);
-        println!("  {addr} = {:.2}", measurement);
-        constraints.observe(addr, Arc::new(measurement)); // yes, Arc is required.
-    }
 
-    let (trace, weight) = guess_the_number_model.generate(noise, constraints);
-    println!("log[p(m0|hidden) x p(m1|hidden) x ... x p(m4|hidden)] = {weight}\n");
+    // let's make some synthetic measurements
+    constraints.observe("m0", Arc::new(40.0_f32));
+    constraints.observe("m1", Arc::new(41.0_f32));
+    constraints.observe("m2", Arc::new(42.0_f32));
+    constraints.observe("m3", Arc::new(43.0_f32));
+    constraints.observe("m4", Arc::new(44.0_f32));
 
-    // a pass names which addresses are regenerated. here, just "hidden".
-    // sometimes called a "mask" as it identifies a subset of addresses.
+    let noise_arg = 5.0;  // EXERCISE: decrease to 0.05;
+    let (trace, weight) = guess_the_number_model.generate(noise_arg, constraints);
+
+    // read out the starting guess
+    // run a few times, see how it changes
+    let h = trace.data.read::<f32>("hidden");
+    println!("starting guess = {h}");
+    println!("log[p(m0|hidden={h}) \n  * p(m1|hidden={h}) \n  * ... \n  * p(m4|hidden={h})] = {weight}\n");
+
+    // a pass names which addresses are regenerated in **Metropolis-Hastings**.
     let mut hidden_pass = AddrMap::new();
     hidden_pass.visit("hidden");
 
-    let kernel = InferenceKernel::new(&guess_the_number_model).regen_mh(&hidden_pass);
-    let iters = 20; // try increasing to around ~20k
+    // This is a custom Metropolis-Hastings InferenceKernel
+    let kernel = InferenceKernel::new(&guess_the_number_model)
+        .regen_mh(&hidden_pass);  // regenerate the hidden variable
 
+    let iters = 20;  // EXERCISE: try increasing to around ~20k
     let start = std::time::Instant::now();
-    let guesses: Vec<f32> = kernel
-        .iter(trace)
+
+    // `InferenceKernel` can return an `Iterator`!
+    // First, initialize with the starting guess
+    let kernel_it = kernel.iter(trace);
+
+    // Run inference for `iters`.
+    // Each step, collect the return value of the trace.
+    let guesses: Vec<f32> = kernel_it
         .take(iters)
         .map(|t| t.retv.unwrap())
         .collect();
     let elapsed = start.elapsed();
 
-    for (i, guess) in guesses.iter().enumerate() {
-        println!("iter {i:2}: guess = {guess:.2}");
-    }
-
-    println!("\n{iters} iters in {elapsed:.2?}");
+    // EXERCISE: uncomment to watch the Markov Chain converge
+    // println!("starting guess = {h:.2}");
+    // for (i, guess) in guesses.iter().enumerate() {
+    //     println!("step {i:2}: guess = {guess:.2}");
+    // }
+    // println!("\n{iters} iters in {elapsed:.2?}");
 }

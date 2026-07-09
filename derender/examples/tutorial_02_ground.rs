@@ -35,42 +35,6 @@ const NOISE: f32 = 0.1;
 
 // ─── the scene model ──────────────────────────────────────────────────────
 
-dyngen!(
-    fn ground_model(noise: f32) -> Depths {
-        // `dyngen!` lines with "%=" are *sample* statements,
-        // they represent the string-addressable random choices,
-        // and are sampled from a *prior* distribution.
-        let cam_y = uniform(0.5, 2.0) %= "cam/y";
-        let cam_roll = normal(0.0, PI / 8.0) %= "cam/roll";
-
-        // This specifies a camera transformation (`glam` crate)
-        // using the sampled parameters and some constants.
-        let x = Affine3A::from_rotation_translation(
-            Quat::from_euler(EulerRot::XYZ, 0.0, 0.0, cam_roll),
-            [0.0, cam_y, 1.2].into(),
-        );
-
-        // the scene: one infinite ground plane (color is unused in depth renders)
-        let ground = Box::new(Plane {
-            origin: Vec3A::ZERO,
-            normal: [0.0, 1.0, 0.0].into(),
-        }) as Box<dyn Solid>;
-
-        // the renderer *is* the likelihood's mean: raytrace a depth image, then
-        // observe a noisy version of it.
-        let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32 / H() as f32, NEAR(), FAR());
-        let mut pixels = vec![0.0; AREA()];
-        raytrace_depths(x, proj, &vec![ground], &mut pixels);
-
-        // The observation is a noisy version of the clean image.
-        noisy_depths(pixels.clone(), noise) %= "observation";
-
-        pixels
-    }
-);
-
-// ─── the likelihood ───────────────────────────────────────────────────────
-//
 // A likelihood in ModPPL is simple: any custom type implementing
 // `Distribution<Value, Params>` is a sampleable base distribution (%=)
 // that implements two functions: Distribution::logpdf and Distribution::random
@@ -81,65 +45,58 @@ dyngen!(
 // the renderer's normalized depth range).
 use modppl_derender::noisy_depths;
 
-fn main() {
-    // ─── 1. simulate ────────────────────────────────────────────────────
-    let trace = ground_model.simulate(NOISE);
+dyngen!(
+    fn ground_model(noise: f32) -> Depths {
+        let cam_y = uniform(0.5, 2.0) %= "cam/y";
+        let cam_roll = normal(0.0, PI / 8.0) %= "cam/roll";
 
-    // print_dyntrace already includes the trace's data (every named random
-    // choice, i.e. the trie) in its output -- there's no separate "print the
-    // trie alone" function needed.
-    println!(
-        "{}",
-        modppl::dyntrie_to_string_with(
-            &trace.data,
-            &[] // &[dyn_debug_formatter::<Depths>]
-        )
-    );
+        // This specifies a camera transformation (`glam` crate)
+        // using the sampled parameters and some constants.
+        let cam = Affine3A::from_rotation_translation(
+            Quat::from_euler(EulerRot::XYZ, 0.0, 0.0, cam_roll),
+            [0.0, cam_y, 1.2].into(),
+        );
 
-    // ─── 2. print its values ────────────────────────────────────────────
-    // any named random choice can be read straight out of the trace.
+        // EXERCISE: use ModPPL's other primitive operation: `/=`.
+        // factor out `cam` sampling logic into `cam_pose` below,
+        // and uncomment the following line.
+        // let cam = cam_pose() /= "cam";
 
-    // the SAFE typed read pattern (see tutorial_01 for when/why this panics).
-    let mut cam_y = trace.data.read::<f32>("cam/y");
-    let cam_roll = trace.data.read::<f32>("cam/roll");
+        // the scene: an infinite ground plane
+        let ground = Box::new(Plane {
+            origin: Vec3A::ZERO,
+            normal: [0.0, 1.0, 0.0].into(),
+        }) as Box<dyn Solid>;
 
-    println!("sampled cam/y:    {:.3}", cam_y);
-    println!("sampled cam/roll: {:.3}", cam_roll);
+        // the renderer *is* the likelihood's mean: raytrace a depth image, then
+        // observe a noisy version of it.
+        let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32 / H() as f32, NEAR(), FAR());
+        let mut pixels = vec![0.0; AREA()];
+        raytrace_depths(cam, proj, &vec![ground], &mut pixels);
 
-    // this is the UNSAFE autocast access pattern.
-    unsafe {
-        cam_y = trace.data.auto("cam/y");
+        // The observation is a noisy version of the clean image.
+        // Adds a truncated gaussian perturbation to each pixel.
+        noisy_depths(pixels.clone(), noise) %= "observation";
+
+        pixels
     }
+);
 
-    println!("sampled cam/y:    {:.3}", cam_y);
-    println!("sampled cam/roll: {:.3}", cam_roll);
+dyngen!(
+    fn cam_pose() -> Affine3A {
+        panic!("not implemented");
+    }
+);
 
-    // ─── 3. render the observed image ──────────────────────────────────
-    // the model's return value IS the rendered depth image; "observation" is
-    // that same image after going through the noise model. tutorial_01 had
-    // five numbers to print; here the "measurement" is a whole image, so we
-    // print a summary instead of all ~4k pixels at RES=64
-    let observation = trace.data.read::<Depths>("observation").clone();
-    let (lo, hi) = observation
-        .iter()
-        .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-    println!(
-        "rendered a {} pixel depth image, range [{lo:.3}, {hi:.3}]",
-        observation.len()
-    );
+// ─── inference ───────────────────────────────────────────────────────────────
 
-    // ─── 4. condition ───────────────────────────────────────────────────
-    // a *new* trace, constrained only on the observed image.
-    let mut constraints = DynTrie::new();
-    constraints.observe("observation", Arc::new(observation.clone())); // yes, Arc is required.
-    let (_trace, _weight) = ground_model.generate(NOISE, constraints);
-
-    // ─── 5. regenerate choices ──────────────────────────────────────────
+fn main() {
     let mut cam_pass = AddrMap::new();
     cam_pass.visit("cam/y");
     // cam_pass.visit("cam/roll");  // uncomment, watch inference improve
 
-    let kernel = &InferenceKernel::new(&ground_model).regen_mh(&cam_pass);
+    let kernel = &InferenceKernel::new(&ground_model)
+        .regen_mh(&cam_pass);
 
     // this is a closure that runs `kernel` in a loop,
     // and displays two panels side-by-side:
@@ -147,11 +104,11 @@ fn main() {
     run_sandbox_loop(
         "tutorial 02: ground  |  obs : hyp  |  Space=pause  R=resample  S=save  ESC=quit",
         || {
-            let trace = ground_model.simulate(NOISE);
-            let observation = trace.data.read::<Depths>("observation").clone();
+            let gt = ground_model.simulate(NOISE);
+            let synth_obs = gt.data.read::<Depths>("observation").clone();
 
             let mut constraints = DynTrie::new();
-            constraints.observe("observation", Arc::new(observation.clone())); // yes, Arc is... you get the point.
+            constraints.observe("observation", Arc::new(synth_obs.clone())); // yes, Arc is... you get the point.
             let trace = ground_model.generate(NOISE, constraints).0;
 
             let mut printed_lines = 0usize;
@@ -165,7 +122,7 @@ fn main() {
                 print_trace_live(&trace, &mut printed_lines);
 
                 Panels::Depth {
-                    obs: observation.clone(),
+                    obs: synth_obs.clone(),
                     hyp: trace.retv.clone().unwrap(),
                 }
             }

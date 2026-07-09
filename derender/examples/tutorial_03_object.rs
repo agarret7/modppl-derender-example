@@ -30,15 +30,14 @@ use modppl_derender::{
     sandbox::{run_sandbox_loop, Panels},
 };
 
-const NOISE: f32 = 0.1;
+const NOISE: f32 = 0.05;
 
 // ─── the model: tutorial 02 + a cube ─────────────────────────────────────────
 
 dyngen!(
     fn grounded_cube_model(noise: f32) -> Depths {
-        // camera: height + yaw (yaw so the cube isn't always dead-center)
-        let cam_y = uniform(0.5, 2.0) %= "cam_y";
-        let cam_yaw = normal(-0.2, PI / 16.0) %= "cam_yaw";
+        let cam_y = uniform(0.5, 2.0) %= "cam/y";
+        let cam_yaw = normal(-0.2, PI / 16.0) %= "cam/yaw";
         let x = Affine3A::from_rotation_translation(
             Quat::from_euler(EulerRot::XYZ, cam_yaw, 0.0, 0.0),
             [0.0, cam_y, 1.2].into()
@@ -49,18 +48,16 @@ dyngen!(
             normal: [0.0, 1.0, 0.0].into(),
         }) as Box<dyn Solid>;
 
-        // the new object: three latents. Setting center.y = half_extent rests the
-        // cube exactly on the ground -- physical constraints like "objects sit on
-        // surfaces" are just deterministic structure in the generative code, no
-        // special machinery.
-        // EXERCISE: let the cube float: sample a "cube_h" height latent and use it
-        // for center.y. Watch inference exploit the new freedom (and get slower).
-        let u = uniform(-1.0, 1.0) %= "cube_u";
-        let v = uniform(-1.0, 0.0) %= "cube_v";
-        // floor at 0.15 so a fresh ground-truth cube is never just a few pixels
-        let half_extent = uniform(0.15, 0.5) %= "cube_size";
+        let u = uniform(-1.0, 1.0) %= "cube/u";
+        let v = uniform(-1.0, 0.0) %= "cube/v";
+
+        // EXERCISE: give the cube a random height
+        let y = 0.0;
+        // let y = uniform(0.0, 1.0) %= "cube/y";
+
+        let half_extent = uniform(0.15, 0.5) %= "cube/size";
         let cube = Box::new(Cube {
-            center: [u, half_extent, v].into(),
+            center: [u, half_extent + y, v].into(),
             half_extent,
         }) as Box<dyn Solid>;
 
@@ -102,13 +99,14 @@ dyngen!(
 
 fn main() {
     let mut cam_pass = AddrMap::new();
-    cam_pass.visit("cam_y");
-    cam_pass.visit("cam_yaw");
+    cam_pass.visit("cam/y");
+    cam_pass.visit("cam/yaw");
 
+    // EXERCISE: uncomment these
     let mut cube_pass = AddrMap::new();
-    cube_pass.visit("cube_u");
-    cube_pass.visit("cube_v");
-    cube_pass.visit("cube_size");
+    // cube_pass.visit("cube/u");
+    // cube_pass.visit("cube/v");
+    cube_pass.visit("cube/size");
 
     let kernel = &InferenceKernel::new(&grounded_cube_model)
         .regen_mh(&cam_pass)
@@ -119,11 +117,11 @@ fn main() {
     run_sandbox_loop(
         "tutorial 03: cube  |  obs : hyp  |  Space=pause  R=resample  S=save  ESC=quit",
         || {
-            let gt = grounded_cube_model.generate(NOISE, DynTrie::new()).0;
-            let observation = gt.data.read::<Depths>("observation").clone();
+            let gt = grounded_cube_model.simulate(NOISE);
+            let synth_obs = gt.data.read::<Depths>("observation").clone();
 
             let mut constraints = DynTrie::new();
-            constraints.observe("observation", Arc::new(observation.clone()));
+            constraints.observe("observation", Arc::new(synth_obs.clone()));
             let trace = grounded_cube_model.generate(NOISE, constraints).0;
 
             let mut printed_lines = 0usize;
@@ -133,7 +131,7 @@ fn main() {
                 print_trace_live(&trace, &mut printed_lines);
 
                 Panels::Depth {
-                    obs: observation.clone(),
+                    obs: synth_obs.clone(),
                     hyp: trace.retv.clone().unwrap(),
                 }
             }

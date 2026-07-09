@@ -31,12 +31,7 @@ use modppl_derender::{
     sandbox::{run_sandbox_loop, Panels},
 };
 
-// EXERCISE (channel ablation): set COLOR_NOISE to 0.99 -- the color channel
-// becomes uninformative and inference runs on depth alone: position and size
-// still converge, but the ground color wanders and the cube's facing is
-// whatever depth allows. Then instead set DEPTH_NOISE to 0.99: color alone
-// must carry everything, and position gets mushier (many depths project to
-// similar silhouettes).
+// EXERCISE (channel ablation): set COLOR_NOISE to ~0.7
 const DEPTH_NOISE: f32 = 0.1;
 const COLOR_NOISE: f32 = 0.1;
 
@@ -50,13 +45,20 @@ use modppl_derender::{
 // ─── the model: tutorial 03 + color ──────────────────────────────────────────
 
 dyngen!(
+    fn uniform_color() -> [f32; 3] {
+        let ground_c0 = uniform(0.0, 1.0) %= "c0";
+        let ground_c1 = uniform(0.0, 1.0) %= "c1";
+        let ground_c2 = uniform(0.0, 1.0) %= "c2";
+        rgb(ground_c0, ground_c1, ground_c2)
+    }
+);
+
+dyngen!(
     fn rubiks_scene_model(noise: (f32, f32)) -> (Depths, Colors) {
         let (depth_noise, color_noise) = noise;
 
-        let cam_y = uniform(0.5, 2.0) %= "cam_y";
-        // slight downward bias, tight spread: the camera sits 0.5-2.0 units up,
-        // so a level-or-upward pitch shows mostly sky and no scene at all
-        let cam_yaw = normal(-0.2, PI / 16.0) %= "cam_yaw";
+        let cam_y = uniform(0.5, 2.0) %= "cam/y";
+        let cam_yaw = normal(-0.2, PI / 16.0) %= "cam/yaw";
         let x = Affine3A::from_rotation_translation(
             Quat::from_euler(EulerRot::XYZ, cam_yaw, 0.0, 0.0),
             [0.0, cam_y, 1.2].into(),
@@ -67,22 +69,17 @@ dyngen!(
         // instead, since a normal [f32; 3] array is in BGR order, for .bmp compat).
         // The cube needs none: `Cube::color_at` assigns fixed Rubik's face
         // colors, so the scene-assigned color below is ignored for it.
-        let ground_c0 = uniform(0.0, 1.0) %= "ground/c0";
-        let ground_c1 = uniform(0.0, 1.0) %= "ground/c1";
-        let ground_c2 = uniform(0.0, 1.0) %= "ground/c2";
-        let ground_c = rgb(ground_c0, ground_c1, ground_c2);
         let ground = (
             Box::new(Plane {
                 origin: Vec3A::ZERO,
                 normal: [0.0, 1.0, 0.0].into(),
             }) as Box<dyn Solid>,
-            ground_c
+            uniform_color() /= "ground"  // we can put sampling exprs almost anywhere!
         );
 
-        let u = uniform(-1.0, 1.0) %= "cube_u";
-        let v = uniform(-1.0, 0.0) %= "cube_v";
-        // floor at 0.15 so the cube is never just a few pixels
-        let half_extent = uniform(0.15, 0.5) %= "cube_size";
+        let u = uniform(-1.0, 1.0) %= "cube/u";
+        let v = uniform(-1.0, 0.0) %= "cube/v";
+        let half_extent = uniform(0.15, 0.5) %= "cube/size";
         let cube = (
             Box::new(Cube {
                 center: [u, half_extent, v].into(),
@@ -91,10 +88,9 @@ dyngen!(
             rgb(0.0, 0.0, 0.0), // ignored: Cube::color_at overrides per-face
         );
 
-        // one shared ray-cast pass fills both images (flat = no lighting, fully
-        // deterministic. MCMC needs the likelihood to be a *function* of the
-        // latents, and a Monte Carlo renderer adds noise to the log-probability).
         let proj = Mat4::perspective_rh_gl(FOVY(), W() as f32 / H() as f32, NEAR(), FAR());
+        
+        // one shared ray-cast pass fills both images
         let mut depths = vec![0.0; AREA()];
         let mut colors = vec![[0.0; 3]; AREA()];
         raytrace_depths_and_flat_colors(
@@ -109,6 +105,7 @@ dyngen!(
         // two observation channels: two `%=` lines. That's the whole change.
         noisy_depths(depths.clone(), depth_noise) %= "observation/depths";
         noisy_colors(colors.clone(), color_noise) %= "observation/colors";
+
         (depths, colors)
     }
 );
@@ -126,38 +123,38 @@ dyngen!(
 
 fn main() {
     let mut cam_pass = AddrMap::new();
-    cam_pass.visit("cam_y");
-    cam_pass.visit("cam_yaw");
+    cam_pass.visit("cam/y");
+    cam_pass.visit("cam/yaw");
 
     let mut cube_pass = AddrMap::new();
-    cube_pass.visit("cube_u");
-    cube_pass.visit("cube_v");
-    cube_pass.visit("cube_size");
+    cube_pass.visit("cube/u");
+    cube_pass.visit("cube/v");
+    cube_pass.visit("cube/size");
 
+    // covers sub-choices: "ground/c0", "ground/c1", "ground/c2"
     let mut ground_pass = AddrMap::new();
     ground_pass.visit("ground");
 
     let kernel = &InferenceKernel::new(&rubiks_scene_model)
         .regen_mh(&cam_pass)
-        .regen_mh(&cube_pass)
-        .mh(&drift, (cube_pass.clone(), 0.05))
-        .regen_mh(&ground_pass);
+        // .regen_mh(&ground_pass)  // EXERCISE: enable these
+        // .regen_mh(&cube_pass)
+        .mh(&drift, (cube_pass.clone(), 0.05));
 
     // you're nearly done with this tutorial.
-    // afterward, try running
-    // `cargo run --release --example sandbox rubiks`
+    // to list some more examples, try:
+    // `cargo run --release --example sandbox`
     run_sandbox_loop(
         "tutorial 04: rubiks  |  obs : hyp  |  Space=pause  R=resample  S=save  ESC=quit",
         || {
             let gt = rubiks_scene_model
-                .generate((DEPTH_NOISE, COLOR_NOISE), DynTrie::new())
-                .0;
-            let obs_depth = gt.data.read::<Depths>("observation/depths").clone();
-            let obs_color = gt.data.read::<Colors>("observation/colors").clone();
+                .simulate((DEPTH_NOISE, COLOR_NOISE));
+            let synth_obs_depth = gt.data.read::<Depths>("observation/depths").clone();
+            let synth_obs_color = gt.data.read::<Colors>("observation/colors").clone();
 
             let mut constraints = DynTrie::new();
-            constraints.observe("observation/depths", Arc::new(obs_depth.clone()));
-            constraints.observe("observation/colors", Arc::new(obs_color.clone()));
+            constraints.observe("observation/depths", Arc::new(synth_obs_depth.clone()));
+            constraints.observe("observation/colors", Arc::new(synth_obs_color.clone()));
             let trace = rubiks_scene_model
                 .generate((DEPTH_NOISE, COLOR_NOISE), constraints)
                 .0;
@@ -170,7 +167,7 @@ fn main() {
 
                 let (hyp_depth, hyp_color) = trace.retv.clone().unwrap();
                 Panels::Rgbd {
-                    obs: (obs_depth.clone(), obs_color.clone()),
+                    obs: (synth_obs_depth.clone(), synth_obs_color.clone()),
                     hyp: (hyp_depth, hyp_color),
                 }
             }
